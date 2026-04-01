@@ -10,21 +10,21 @@ A organização do repositório segue uma lógica modular para facilitar a manut
 
 ```text
 PL_G16_2526/
-├── Relatorio.latex      # Relatório técnico em LaTeX
-├── src/
-│   ├── pcprogram.py    # Programa principal do compilador
-│   ├── analex.py       # Analisador léxico (ply.lex)
-│   ├── anasin.py       # Analisador sintático (ply.yacc)
-│   ├── anasem.py       # Analisador semântico
-│   ├── geraCod.py      # Gerador de código EWVM
-│   ├── utils/          # Módulos auxiliares e suporte
-│   │   ├── Erros.py    # Sistema centralizado de mensagens de erro
-│   │   └── Cores.py    # Definições para estilização do terminal
-├── testes/             # Programas de teste (.f e .vm)
-├── doc/                # Documentação técnica (Gramática e Tokens)
-│   ├── gramatica.md
-│   └── tokens.md
-└── README.md           # Instruções do projeto
+├── Report.latex         # Technical report in LaTeX
+├── src/                 # Compiler source code
+│   ├── main.py          # Main compiler program (ponto de entrada)
+│   ├── lexer.py         # Lexical analyzer (ply.lex)
+│   ├── parser.py        # Syntax analyzer (ply.yacc)
+│   ├── semantic.py      # Semantic analyzer
+│   ├── codegen.py       # EWVM code generator
+│   └── utils/           # Auxiliary modules and support
+│       ├── errors.py    # Centralized error messaging system
+│       └── colors.py    # Terminal styling definitions
+├── tests/               # Test programs (.f and .vm)
+├── docs/                # Technical documentation (Grammar and Tokens)
+│   ├── grammar.md       # Grammar description
+│   └── tokens.md        # Tokens identification
+└── README.md            # Project instructions
 ```
 
 ---
