@@ -46,6 +46,13 @@ O compilador suporta as construções essenciais da norma Fortran 77:
 
 ---
 
-## 👥 Grupo 
-* **Grupo**: 3 elementos.
+## 👥 Grupo de Trabalho
+
+Constituintes do grupo de trabalho:
+
+| Nome | Número |
+| :--- | :--- |
+| David Lopes Machado | a107325 |
+|  |  |
+| Rodrigo de Sousa Campos Pacheco da Rocha | a107335 |
 
