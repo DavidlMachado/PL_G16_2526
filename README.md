@@ -25,6 +25,7 @@ PL_G16_2526/
 │   ├── gramatica.md
 │   └── tokens.md
 └── README.md           # Instruções do projeto
+```
 
 ---
 
