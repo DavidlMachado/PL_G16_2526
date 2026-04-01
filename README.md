@@ -17,10 +17,11 @@ PL_G16_2526/
 │   ├── anasin.py       # Analisador sintático (ply.yacc)
 │   ├── anasem.py       # Analisador semântico
 │   ├── geraCod.py      # Gerador de código EWVM
-│   ├── Erros.py        # Sistema de mensagens de erro
-│   └── Cores.py        # Cores para output no terminal
+│   ├── utils/          # Módulos auxiliares e suporte
+│   │   ├── Erros.py    # Sistema centralizado de mensagens de erro
+│   │   └── Cores.py    # Definições para estilização do terminal
 ├── testes/             # Programas de teste (.f e .vm)
-├── doc/                # Documentação técnica
+├── doc/                # Documentação técnica (Gramática e Tokens)
 │   ├── gramatica.md
 │   └── tokens.md
 └── README.md           # Instruções do projeto
