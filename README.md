@@ -8,16 +8,22 @@ Este projeto consiste no desenvolvimento de um compilador para a linguagem **For
 
 A organização do repositório segue uma lógica modular para facilitar a manutenção e o processo de compilação:
 
-* **src/**: Código-fonte do compilador implementado em Python utilizando a biblioteca `ply`.
-    * `pcprogram.py`: Ponto de entrada (Main) do compilador.
-    * `analex.py`: Analisador Léxico (`ply.lex`).
-    * `anasin.py`: Analisador Sintático (`ply.yacc`).
-    * `anasem.py`: Analisador Semântico (verificação de tipos e labels).
-    * `geraCod.py`: Gerador de código para a Máquina Virtual.
-    * `Erros.py` & `Cores.py`: Utilitários para tratamento de erros e output.
-* **testes/**: Ficheiros de programas exemplo (.f) e os respetivos ficheiros de código em VM.
-* **doc/**: Documentação técnica e gramática.
-* **Relatorio.pdf**: Relatório técnico (máximo 10 páginas).
+```text
+PL_G16_2526/
+├── Relatorio.latex      # Relatório técnico em LaTeX
+├── src/
+│   ├── pcprogram.py    # Programa principal do compilador
+│   ├── analex.py       # Analisador léxico (ply.lex)
+│   ├── anasin.py       # Analisador sintático (ply.yacc)
+│   ├── anasem.py       # Analisador semântico
+│   ├── geraCod.py      # Gerador de código EWVM
+│   ├── Erros.py        # Sistema de mensagens de erro
+│   └── Cores.py        # Cores para output no terminal
+├── testes/             # Programas de teste (.f e .vm)
+├── doc/                # Documentação técnica
+│   ├── gramatica.md
+│   └── tokens.md
+└── README.md           # Instruções do projeto
 
 ---
 
