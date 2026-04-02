@@ -102,7 +102,16 @@ def t_VAR(t):
 
 # Lidar com caracteres que o lexer não conhece
 def t_error(t):
-    print(f"Carácter ilegal: {t.value[0]} na linha {t.lexer.lineno}")
+    # Calcula a coluna (posição dentro da linha)
+    last_cr = t.lexer.lexdata.rfind('\n', 0, t.lexpos)
+    if last_cr < 0:
+        column = t.lexpos + 1
+    else:
+        column = (t.lexpos - last_cr)
+
+    print(f"Erro Léxico: Carácter '{t.value[0]}' ilegal na linha {t.lineno}, coluna {column}")
+    
+    # Continuamos a percorrer o código para ver se há mais erros
     t.lexer.skip(1)
 
 # Construir o lexer
