@@ -55,4 +55,6 @@ Constituintes do grupo de trabalho:
 | David Lopes Machado | a107325 |
 |  |  |
 | Rodrigo de Sousa Campos Pacheco da Rocha | a107335 |
+|  |  |
+  João Pedro Araújo Fernandes | a103568 |
 
