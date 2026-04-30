@@ -1,86 +1,97 @@
 import ply.yacc as yacc
-from lexer import tokens, lexer # tokens para o yacc, lexer para testar no parse()
+from lexer import tokens, lexer
+from errors import Errors
 
-# --- Definição da Gramática e Precedência ---
-
-# A precedência dos operadores é crucial para resolver ambiguidades em expressões.
-# Por exemplo, em "3 + 4 * 2", o "*" tem maior precedência que o "+",
-# então a expressão é avaliada como "3 + (4 * 2)".
-#
-# A lista é definida do operador de menor precedência (no topo) para o de maior precedência (no fundo).
-#
-# - 'left': O operador agrupa da esquerda para a direita (ex: a - b - c é (a - b) - c).
-# - 'right': O operador agrupa da direita para a esquerda (ex: a ** b ** c é a ** (b ** c)).
-# - 'nonassoc': O operador não pode ser encadeado (ex: a < b < c é um erro).
-#
-# Os nomes dos tokens (OR, AND, etc.) devem corresponder aos definidos no lexer.py.
 precedence = (
     ('left', 'OR'),
     ('left', 'AND'),
     ('right', 'NOT'),
-    # Operadores relacionais são 'nonassoc' para evitar cadeias como 'a .LT. b .LT. c'
-    # que são sintaticamente ambíguas ou sem sentido em Fortran 77.
     ('nonassoc', 'LT', 'LE', 'EQ', 'NE', 'GT', 'GE'),
     ('left', '+', '-'),
     ('left', '*', '/'),
     ('right', 'POW'),
-    ('right', 'UMINUS'), # Operador unário menos
+    ('right', 'UMINUS'),
 )
 
-# Regra inicial
-# Esta é a regra de topo da gramática. O parser tenta reduzir todo o código fonte a esta regra.
-# Se conseguir, o programa é sintaticamente válido.
-def p_program(p):
+# --- Regra Raiz: ficheiro pode ter programa principal + subprogramas ---
+
+def p_file(p):
     """
-    program : optional_program_statement declaration_section executable_section END
+    file : program_unit
+         | file program_unit
     """
-    # p[0] é o valor de retorno desta regra, que será o nó raiz da nossa AST.
-    # p[1], p[2], p[3], etc., correspondem aos símbolos à direita da regra na docstring.
-    #
-    # Exemplo:
-    # p[1] -> resultado de 'optional_program_statement' (nome do programa ou None)
-    # p[2] -> resultado de 'declaration_section' (lista de declarações)
-    # p[3] -> resultado de 'executable_section' (lista de statements executáveis)
-    # p[4] -> o token 'END'
-    #
-    # A AST é construída usando tuplos, onde o primeiro elemento é o tipo de nó
-    # e os restantes são os seus filhos ou atributos.
-    # Isso permite uma representação hierárquica do código.
-    # Esta é a raiz da nossa Árvore Sintática Abstrata (AST)
+    if len(p) == 2:
+        p[0] = [p[1]]
+    else:
+        p[0] = p[1] + [p[2]]
+
+def p_program_unit(p):
+    """
+    program_unit : main_program
+                 | function_subprogram
+                 | subroutine_subprogram
+    """
+    p[0] = p[1]
+
+# --- Programa Principal ---
+
+def p_main_program(p):
+    """
+    main_program : optional_program_statement declaration_section executable_section END
+    """
     p[0] = ('PROGRAM', p[1], p[2], p[3])
-    print("Programa Fortran reconhecido com sucesso!")
 
 def p_optional_program_statement(p):
     """
     optional_program_statement : PROGRAM VAR
                                | empty
-    """    
-    # Verifica se a regra corresponde a 'PROGRAM VAR' (len(p) > 2) ou 'empty' (len(p) == 2).
-    if len(p) > 2:
-        # Se for 'PROGRAM VAR', p[2] é o nome da variável (o nome do programa).
-        p[0] = p[2] 
-    else:
-        # Se for 'empty', significa que não há declaração de PROGRAM,
-        # então o nome do programa é None.
-        # A regra 'empty' é uma produção vazia, que permite que uma parte da gramática
-        # seja opcional.
-        p[0] = None # Programa sem nome
+    """
+    p[0] = p[2] if len(p) > 2 else None
 
-# Secções do programa
+# --- Subprogramas (valorização) ---
+
+def p_function_subprogram(p):
+    """
+    function_subprogram : type FUNCTION VAR '(' param_list ')' declaration_section executable_section END
+                        | FUNCTION VAR '(' param_list ')' declaration_section executable_section END
+    """
+    if len(p) == 10:
+        # Com tipo de retorno explícito: INTEGER FUNCTION CONVRT(N, B)
+        p[0] = ('FUNCTION', p[3], p[1], p[4], p[7], p[8])
+    else:
+        p[0] = ('FUNCTION', p[2], None, p[3], p[6], p[7])
+
+def p_subroutine_subprogram(p):
+    """
+    subroutine_subprogram : SUBROUTINE VAR '(' param_list ')' declaration_section executable_section END
+                          | SUBROUTINE VAR '(' ')' declaration_section executable_section END
+    """
+    if len(p) == 9:
+        p[0] = ('SUBROUTINE', p[2], p[4], p[6], p[7])
+    else:
+        p[0] = ('SUBROUTINE', p[2], [], p[5], p[6])
+
+def p_param_list(p):
+    """
+    param_list : VAR
+               | param_list ',' VAR
+               | empty
+    """
+    if len(p) == 2:
+        p[0] = [p[1]] if p[1] is not None else []
+    else:
+        p[0] = p[1] + [p[3]]
+
+# --- Secções ---
+
 def p_declaration_section(p):
     """
     declaration_section : declaration_section declaration
                         | empty
-    """    
-    # Esta é uma regra recursiva para acumular declarações.
-    # Se houver mais de uma declaração, p[1] será a lista de declarações anteriores
-    # e p[2] será a declaração atual.
+    """
     if len(p) > 2:
-        # Adiciona a nova declaração à lista existente.
         p[0] = p[1] + [p[2]]
     else:
-        # Se for a primeira (ou única) declaração, ou se a secção for vazia,
-        # inicia uma lista vazia.
         p[0] = []
 
 def p_executable_section(p):
@@ -88,27 +99,18 @@ def p_executable_section(p):
     executable_section : executable_section statement
                        | empty
     """
-    # Semelhante a 'declaration_section', esta regra acumula statements executáveis.
-    # p[1] é a lista de statements anteriores, p[2] é o statement atual.
     if len(p) > 2:
-        # Adiciona o novo statement à lista existente.
         p[0] = p[1] + [p[2]]
     else:
-        # Se a secção for vazia, inicia uma lista vazia.
         p[0] = []
 
-# --- Regras para Declarações ---
+# --- Declarações ---
 
-# Declarações de variáveis
 def p_declaration(p):
     """
-    declaration : type var_list
+    declaration : type var_decl_list
     """
-    # Associa o tipo a cada variável na lista
-    # p[1] é o tipo (ex: 'INTEGER'), p[2] é a lista de variáveis (ex: ['X', 'Y']).
-    p[0] = (p[1], p[2])
-    # Exemplo de AST: ('INTEGER', ['X', 'Y'])
-
+    p[0] = ('DECLARE', p[1], p[2])
 
 def p_type(p):
     """
@@ -117,43 +119,44 @@ def p_type(p):
          | LOGICAL
          | CHARACTER
     """
-    # O valor do token (ex: 'INTEGER') é o próprio tipo.
     p[0] = p[1]
 
-def p_var_list(p):
+def p_var_decl_list(p):
     """
-    var_list : VAR
-             | var_list ',' VAR
-    """    
-    # Regra recursiva para lidar com listas de variáveis separadas por vírgula.
+    var_decl_list : var_decl
+                  | var_decl_list ',' var_decl
+    """
     if len(p) == 2:
-        # Caso base: apenas uma variável. Retorna uma lista com essa variável.
-        # p[1] é o nome da variável (string).
         p[0] = [p[1]]
     else:
-        # Caso recursivo: adiciona a nova variável (p[3]) à lista existente (p[1]).
-        # p[1] é a lista de variáveis já processadas.
-        # p[3] é o nome da nova variável.
         p[0] = p[1] + [p[3]]
 
-# Statements executáveis
+def p_var_decl(p):
+    """
+    var_decl : VAR
+             | VAR '(' INTVAL ')'
+    """
+    # Suporte a arrays: INTEGER NUMS(5)
+    if len(p) == 2:
+        p[0] = ('SCALAR', p[1])
+    else:
+        p[0] = ('ARRAY', p[1], p[3])
+
+# --- Statements ---
+
 def p_statement(p):
     """
     statement : labeled_statement
               | unlabeled_statement
     """
-    # Um statement pode ter um label ou não. Simplesmente passa o resultado adiante.
     p[0] = p[1]
 
 def p_labeled_statement(p):
     """
-    labeled_statement : INTVAL unlabeled_statement
+    labeled_statement : LABEL unlabeled_statement
     """
-    # Um statement com label é representado por um tuplo ('LABEL', número_do_label, statement_real).
-    # p[1] é o valor inteiro do label.
-    # p[2] é o statement sem label que segue o número.
-    # (label, statement)
-    p[0] = ('LABEL', p[1], p[2])
+    line = p.lineno(1) # A linha do próprio Label (o número)
+    p[0] = ('LABEL', p[1], p[2], line)
 
 def p_unlabeled_statement(p):
     """
@@ -164,102 +167,115 @@ def p_unlabeled_statement(p):
                         | print_statement
                         | read_statement
                         | continue_statement
+                        | return_statement
+                        | stop_statement
+                        | call_statement
     """
-    # Esta regra agrupa todos os tipos de statements que não têm um label.
-    # Simplesmente passa o resultado do statement específico adiante.
     p[0] = p[1]
 
 def p_assignment_statement(p):
     """
     assignment_statement : VAR '=' expression
+                         | VAR '(' expression ')' '=' expression
     """
-    # Representa uma atribuição: VAR = EXPRESSION.
-    # p[1] é o nome da variável, p[3] é a expressão a ser atribuída.
-    p[0] = ('ASSIGN', p[1], p[3])
+    if len(p) == 4:
+        line = p.lineno(2) # A linha do sinal '='
+        # p.lineno(1) para o 'VAR' saber a sua própria linha
+        p[0] = ('ASSIGN', ('VAR', p[1], p.lineno(1)), p[3], line)
+    else:
+        line = p.lineno(5) # A linha do sinal '='
+        # p.lineno(1) para o ARRAY saber a sua linha
+        p[0] = ('ASSIGN', ('ARRAY_ACCESS', p[1], p[3], p.lineno(1)), p[6], line)
 
 def p_if_statement(p):
     """
     if_statement : IF '(' expression ')' THEN executable_section ENDIF
                  | IF '(' expression ')' THEN executable_section ELSE executable_section ENDIF
     """
-    # Lida com IF-THEN e IF-THEN-ELSE.
-    # A diferença é o número de elementos na regra (len(p)).
-    if len(p) == 8: # IF-THEN
-        # p[3] é a condição, p[6] é o bloco THEN.
-        p[0] = ('IF', p[3], p[6])
-    else: # IF-THEN-ELSE
-        # p[3] é a condição, p[6] é o bloco THEN, p[8] é o bloco ELSE.
-        p[0] = ('IF-ELSE', p[3], p[6], p[8])
-    # Exemplo de AST: ('IF', (condição), [statement1, statement2])
-    # Exemplo de AST: ('IF-ELSE', (condição), [then_stmt], [else_stmt])
+    if len(p) == 8:
+        p[0] = ('IF', p[3], p[6], [])
+    else:
+        p[0] = ('IF', p[3], p[6], p[8])
 
 def p_do_statement(p):
     """
     do_statement : DO INTVAL VAR '=' expression ',' expression
                  | DO INTVAL VAR '=' expression ',' expression ',' expression
     """
-    # Lida com ciclos DO.
-    # p[2] é o label de destino do DO (INTVAL).
-    # p[3] é a variável de controlo (VAR).
-    # p[5] é a expressão inicial.
-    # p[7] é a expressão final.
-    # p[9] (se existir) é a expressão do passo (step).
-    if len(p) == 8: # Sem step
-        # Se não houver step explícito, o Fortran 77 assume 1.
-        p[0] = ('DO', p[2], p[3], p[5], p[7], ('CONST', 'INT', 1)) # Step default é 1
-    else: # Com step
-        # Com step explícito.
-        p[0] = ('DO', p[2], p[3], p[5], p[7], p[9])
-    # Exemplo de AST: ('DO', label, 'I', (expr_inicio), (expr_fim), (expr_step))
+    line = p.lineno(1) # A linha onde está a palavra 'DO'
+    if len(p) == 8:
+        p[0] = ('DO', p[2], p[3], p[5], p[7], ('CONST', 'INT', 1), line)
+    else:
+        p[0] = ('DO', p[2], p[3], p[5], p[7], p[9], line)
 
 def p_goto_statement(p):
     """
     goto_statement : GOTO INTVAL
     """
-    # Representa um GOTO para um label específico.
-    # p[2] é o valor inteiro do label.
     p[0] = ('GOTO', p[2])
 
 def p_continue_statement(p):
     """
     continue_statement : CONTINUE
     """
-    # O statement CONTINUE não tem argumentos.
     p[0] = ('CONTINUE',)
+
+def p_return_statement(p):
+    """
+    return_statement : RETURN
+    """
+    p[0] = ('RETURN',)
+
+def p_stop_statement(p):
+    """
+    stop_statement : STOP
+    """
+    p[0] = ('STOP',)
+
+def p_call_statement(p):
+    """
+    call_statement : CALL VAR '(' expression_list ')'
+                   | CALL VAR '(' ')'
+    """
+    if len(p) == 6:
+        p[0] = ('CALL_STMT', p[2], p[4])
+    else:
+        p[0] = ('CALL_STMT', p[2], [])
 
 def p_print_statement(p):
     """
     print_statement : PRINT '*' ',' expression_list
     """
     p[0] = ('PRINT', p[4])
-    # p[4] é a lista de expressões a serem impressas.
-    # Exemplo de código: PRINT *, 'RESULT:', X, 10
-    # Exemplo de AST: ('PRINT', [('CONST', 'STRING', 'RESULT:'), ('VAR', 'X'), ('CONST', 'INT', 10)])
 
 def p_read_statement(p):
     """
     read_statement : READ '*' ',' var_list
     """
     p[0] = ('READ', p[4])
-    # p[4] é a lista de variáveis onde os valores lidos serão armazenados.
-    # Exemplo de código: READ *, VALOR1, VALOR2
-    # Exemplo de AST: ('READ', ['VALOR1', 'VALOR2'])
+
+def p_var_list(p):
+    """
+    var_list : VAR
+             | var_list ',' VAR
+    """
+    if len(p) == 2:
+        p[0] = [p[1]]
+    else:
+        p[0] = p[1] + [p[3]]
+
+# --- Expressões ---
 
 def p_expression_list(p):
     """
     expression_list : expression
                     | expression_list ',' expression
-    """    
-    # Regra recursiva para lidar com listas de expressões separadas por vírgula.
-    # Usada em PRINT, por exemplo.
+    """
     if len(p) == 2:
-        # Caso base: uma única expressão.
         p[0] = [p[1]]
     else:
-        # Caso recursivo: adiciona a nova expressão (p[3]) à lista existente (p[1]).
         p[0] = p[1] + [p[3]]
 
-# Expressões
 def p_expression_binop(p):
     """
     expression : expression '+' expression
@@ -276,18 +292,15 @@ def p_expression_binop(p):
                | expression AND expression
                | expression OR expression
     """
-    # Regra genérica para operadores binários.
-    # p[1] é a expressão da esquerda, p[2] é o operador, p[3] é a expressão da direita.
-    # A precedência e associatividade são tratadas pela variável 'precedence' definida acima.
-    p[0] = (p[2], p[1], p[3])
-    # Exemplo de AST: ('+', (expr_esq), (expr_dir))
+    line = p.lineno(2) # Vai buscar a linha para ela ser guardada
+    p[0] = (p[2], p[1], p[3], line)
 
 def p_expression_function_call(p):
     """
     expression : VAR '(' expression_list ')'
     """
-    # Regra para chamadas de função, como MOD(NUM, I)
-    # p[1] é o nome da função, p[3] é a lista de argumentos.
+    # Cobre MOD(X,Y), chamadas a FUNCTION, e acesso a arrays como NUMS(I)
+    # A distinção array vs função será feita na análise semântica
     p[0] = ('CALL', p[1], p[3])
 
 def p_expression_unary(p):
@@ -295,26 +308,16 @@ def p_expression_unary(p):
     expression : NOT expression
                | '-' expression %prec UMINUS
     """
-    # Regra para operadores unários (NOT e negação).
-    # p[1] é o operador (o literal '-' ou o valor do token NOT, que é '.NOT.').
-    # p[2] é a expressão à qual o operador se aplica.
     if p[1] == '-':
-        # Operador unário menos (negação).
-        # O '%prec UMINUS' força esta regra a ter a precedência definida para UMINUS,
-        # o que a torna de maior precedência que a subtração binária.
         p[0] = ('UMINUS', p[2])
     else:
-        # Operador lógico NOT unário.
         p[0] = ('NOT', p[2])
-    # Exemplo de AST: ('UMINUS', ('VAR', 'X')), ('NOT', ('VAR', 'FLAG'))
 
 def p_expression_group(p):
     """
     expression : '(' expression ')'
     """
     p[0] = p[2]
-    # Parênteses são usados para agrupar expressões e alterar a precedência.
-    # O valor da expressão agrupada é simplesmente o valor da expressão interna.
 
 def p_expression_val(p):
     """
@@ -324,85 +327,87 @@ def p_expression_val(p):
                | STRING
                | VAR
     """
-    # Esta regra lida com os valores literais e variáveis.
-    # Para simplificar a AST e padronizar, encapsulamos os valores em tuplos.
-    # Usamos p.slice[1].type para identificar o tipo do token de forma explícita,
-    # o que é mais robusto do que usar isinstance(), especialmente para booleanos
-    # (já que em Python, isinstance(True, int) é verdadeiro).
-    if p.slice[1].type == 'BOOLEAN':
-        p[0] = ('CONST', 'BOOL', p[1])
-    elif p.slice[1].type == 'INTVAL':
-        p[0] = ('CONST', 'INT', p[1])
-    elif p.slice[1].type == 'REALVAL':
-        p[0] = ('CONST', 'REAL', p[1])
-    elif p.slice[1].type == 'STRING':
-        p[0] = ('CONST', 'STRING', p[1])
-    elif p.slice[1].type == 'VAR':
-        # Variáveis são representadas pelo seu nome.
-        p[0] = ('VAR', p[1])
-    # Exemplo de AST: ('CONST', 'INT', 10), ('VAR', 'X')
+    token_type = p.slice[1].type
+    line = p.lineno(1) # Apanha a linha da variável
+    if token_type == 'VAR':
+        p[0] = ('VAR', p[1], line)
+    elif token_type == 'BOOLEAN':
+        p[0] = ('CONST', 'BOOL', p[1], line)
+    elif token_type == 'INTVAL':
+        p[0] = ('CONST', 'INT', p[1], line)
+    elif token_type == 'REALVAL':
+        p[0] = ('CONST', 'REAL', p[1], line)
+    elif token_type == 'STRING':
+        p[0] = ('CONST', 'STRING', p[1], line)
 
-# Regra para produções vazias
-# Esta regra é um "truque" do YACC para permitir que partes da gramática sejam opcionais.
-# Por exemplo, 'optional_program_statement' pode ser 'PROGRAM VAR' ou 'empty'.
 def p_empty(p):
     'empty :'
     pass
 
-# Tratamento de erros de sintaxe
-# Esta função é chamada automaticamente pelo PLY quando o parser encontra um erro de sintaxe,
-# ou seja, uma sequência de tokens que não corresponde a nenhuma regra da gramática.
+# --- Erros---
+
+class SintaxError(Exception):
+    pass
+
+def p_main_program_error_end(p):
+    """
+    main_program : optional_program_statement declaration_section executable_section error
+    """
+    msg = Errors.get('sin', p.lineno(1), 'FALTA_END', bloco='PROGRAM')
+    raise SintaxError(msg)
+
+def p_function_subprogram_error_end(p):
+    """
+    function_subprogram : type FUNCTION VAR '(' param_list ')' declaration_section executable_section error
+                        | FUNCTION VAR '(' param_list ')' declaration_section executable_section error
+    """
+    msg = Errors.get('sin', p.lineno(2), 'FALTA_END', bloco='FUNCTION')
+    raise SintaxError(msg)
+
+# Exemplo de regra com Exception para o Fortran:
+def p_if_statement_error(p):
+    """
+    if_statement : IF '(' expression ')' error
+    """
+    # Se abriu o IF mas o que se segue não faz sentido (ex: falta o THEN)
+    msg = Errors.get('sin', p.lineno(1), 'FALTA_THEN')
+    raise SintaxError(msg)  
+
+def p_if_statement_error_endif(p):
+    """
+    if_statement : IF '(' expression ')' THEN executable_section error
+                | IF '(' expression ')' THEN executable_section ELSE executable_section error
+    """
+    # Se abriu o IF mas nunca encontrou o ENDIF para fechar
+    msg = Errors.get('sin', p.lineno(1), 'FALTA_ENDIF')
+    raise SintaxError(msg)
+
 def p_error(p):
     if p:
-        # Se 'p' não for None, significa que o erro ocorreu num token específico.
-        # 'p.value' é o valor do token inesperado.
-        # 'p.lineno' é o número da linha onde o erro ocorreu.
-        # 'p.lexpos' é a posição do token no texto original.
-        # Calculamos a coluna para uma mensagem de erro mais precisa.
-        last_cr = lexer.lexdata.rfind('\n', 0, p.lexpos)
-        if last_cr < 0:
-            column = p.lexpos + 1
-        else:
-            column = (p.lexpos - last_cr)
-        print(f"Erro de Sintaxe: Token inesperado '{p.value}' na linha {p.lineno}, coluna {column}")
+        msg = Errors.get('sin', p.lineno, 'TOKEN_INESPERADO', token=p.value, tipo_token=p.type)
     else:
-        # Se 'p' for None, significa que o parser chegou ao fim do ficheiro
-        # mas a gramática não foi completamente reduzida à regra inicial 'program'.
-        # Isso geralmente indica um programa incompleto ou malformado.
-        print("Erro de Sintaxe: Fim de ficheiro inesperado (EOF)")
+        msg = Errors.get('sin', None, 'EOF_INESPERADO')
+    raise SintaxError(msg)
 
-# Construir o parser
 parser = yacc.yacc()
-# Esta linha constrói a tabela de parsing com base nas regras p_... e na precedência.
 
-# --- Função de Teste ---
 def run_parser_test(filename):
     try:
         with open(filename, 'r') as f:
             data = f.read()
-            print(f"--- A analisar o ficheiro: {filename} ---")
-            result = parser.parse(data, lexer=lexer)
-            # O método parser.parse() recebe o texto a analisar e o lexer a usar.
-            # Se a análise for bem-sucedida, retorna a AST (o valor de p[0] da regra 'program').
-            # Se houver um erro de sintaxe, p_error é chamado e parser.parse() retorna None.
-            if result:
-                # Imprimir a AST de forma mais legível
-                import pprint
-                pp = pprint.PrettyPrinter(indent=2)
-                print("\n--- Árvore Sintática Abstrata (AST) ---")
-                pp.pprint(result)
-            print("-" * 40)
+        print(f"--- A analisar: {filename} ---")
+        result = parser.parse(data, lexer=lexer)
+        if result:
+            import pprint
+            print("\n--- AST ---")
+            pprint.pprint(result, indent=2)
+        print("-" * 40)
     except FileNotFoundError:
-        print(f"Erro: O ficheiro {filename} não foi encontrado.")
-    except Exception as e:
-        print(f"Ocorreu um erro durante a análise: {e}")
+        print(f"Erro: ficheiro '{filename}' não encontrado.")
 
-# Este bloco garante que a função de teste só é executada quando o script parser.py
-# é invocado diretamente (ex: python3 parser.py meu_programa.f),
-# e não quando é importado como um módulo noutro script.
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1:
         run_parser_test(sys.argv[1])
     else:
-        print("Uso: python3 src/parser.py <caminho_do_ficheiro>")
+        print("Uso: python3 parser.py <ficheiro.f>")

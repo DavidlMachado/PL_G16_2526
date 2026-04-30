@@ -1,118 +1,102 @@
 import ply.lex as lex
-import re
+from errors import Errors
 
-literals = ['=', '+', '-', '*', '/', '(', ')', ',', ':', '.']
+literals = ['=', '+', '-', '*', '/', '(', ')', ',', ':']
 
-# Dicionário de Palavras Reservadas
-# A chave é o que se escreve no Fortran, o valor é o nome do Token gerado.
+# Palavras Reservadas
 reserved = {
-    'PROGRAM': 'PROGRAM',
+    'PROGRAM':    'PROGRAM',
     'SUBROUTINE': 'SUBROUTINE',
-    'FUNCTION': 'FUNCTION',
-    'IF': 'IF',
-    'THEN': 'THEN',
-    'ELSE': 'ELSE',
-    'ENDIF': 'ENDIF',
-    'DO': 'DO',
-    'END': 'END',
-    'CONTINUE': 'CONTINUE',
-    'GOTO': 'GOTO',
-    'PRINT': 'PRINT',
-    'READ': 'READ',
-    'INTEGER': 'INTEGER',
-    'REAL': 'REAL',
-    'LOGICAL': 'LOGICAL',
-    'CHARACTER': 'CHARACTER'
+    'FUNCTION':   'FUNCTION',
+    'RETURN':     'RETURN',
+    'IF':         'IF',
+    'THEN':       'THEN',
+    'ELSE':       'ELSE',
+    'ELSEIF':     'ELSEIF',
+    'ENDIF':      'ENDIF',
+    'DO':         'DO',
+    'END':        'END',
+    'CONTINUE':   'CONTINUE',
+    'GOTO':       'GOTO',
+    'PRINT':      'PRINT',
+    'READ':       'READ',
+    'INTEGER':    'INTEGER',
+    'REAL':       'REAL',
+    'LOGICAL':    'LOGICAL',
+    'CHARACTER':  'CHARACTER',
+    'STOP':       'STOP',
+    'CALL':       'CALL',
 }
 
-# Lista de Tokens 
 tokens = [
-    # Valores
-    'VAR', 'INTVAL', 'REALVAL',  'STRING', 'BOOLEAN',
-    # Operadores Relacionais e Lógicos 
-    'LT', 'LE', 'EQ', 'NE', 'GT', 'GE', 'NOT', 'AND', 'OR',
-    # Exponencial
+    'VAR', 'INTVAL', 'REALVAL', 'STRING', 'BOOLEAN',
+    'LT', 'LE', 'EQ', 'NE', 'GT', 'GE',
+    'NOT', 'AND', 'OR',
     'POW',
+    'LABEL',      # número no início da linha (ex: "10" em "10 CONTINUE")
 ] + list(reserved.values())
 
 t_ignore = ' \t'
 
-# Contar linhas (essencial para mensagens de erro)
 def t_newline(t):
     r'\n+'
     t.lexer.lineno += len(t.value)
+    t.lexer.line_start = t.lexpos + len(t.value)
 
-# Regra para Comentários
-
+# Comentários: estilo free-form (!)
 def t_COMMENT(t):
     r'!.*'
     pass
 
-# Regras para  Operadores Relacionais e Lógicos
-
-t_LT = r'\.LT\.'
-
-t_LE = r'\.LE\.'
-
-t_EQ = r'\.EQ\.'
-
-t_NE = r'\.NE\.'
-
-t_GT = r'\.GT\.'
-
-t_GE = r'\.GE\.'
-
+# Operadores relacionais e lógicos — ANTES de t_VAR e dos literais
+t_LT  = r'\.LT\.'
+t_LE  = r'\.LE\.'
+t_EQ  = r'\.EQ\.'
+t_NE  = r'\.NE\.'
+t_GT  = r'\.GT\.'
+t_GE  = r'\.GE\.'
 t_NOT = r'\.NOT\.'
-
 t_AND = r'\.AND\.'
-
-t_OR = r'\.OR\.'
-
+t_OR  = r'\.OR\.'
 t_POW = r'\*\*'
-
-# Regras para os Valores
 
 def t_BOOLEAN(t):
     r'\.(TRUE|FALSE)\.'
-    t.value = True if 'true' in t.value.lower() else False
+    t.value = True if 'TRUE' in t.value.upper() else False
     return t
 
 def t_STRING(t):
     r"'[^']*'"
-    t.value = t.value[1:-1] # Remove as aspas
+    t.value = t.value[1:-1]  # Remove aspas
     return t
 
 def t_REALVAL(t):
-    r'\d+\.\d{1,}'
+    r'\d+\.\d+'
     t.value = float(t.value)
     return t
 
 def t_INTVAL(t):
     r'\d+'
+    raw_len = len(t.value)      # comprimento original ANTES de converter
     t.value = int(t.value)
+    line_start = getattr(t.lexer, 'line_start', 0)
+    text_before = t.lexer.lexdata[line_start:t.lexpos]
+    text_after = t.lexer.lexdata[t.lexpos + raw_len:]
+    next_char = text_after[0] if text_after else ''
+    if text_before.strip() == '' and next_char in (' ', '\t'):
+        t.type = 'LABEL'
     return t
 
-# Regra para Variáveis
 def t_VAR(t):
     r'[a-zA-Z][a-zA-Z0-9]*'
-    val_upper = t.value.upper()
-    # Verifica se o tipo é um reservado e muda-o nesse caso
-    t.type = reserved.get(val_upper, 'VAR')
+    t.type = reserved.get(t.value.upper(), 'VAR')
+    if t.type == 'VAR':
+        t.value = t.value.upper()  # Fortran é case-insensitive
     return t
 
-# Lidar com caracteres que o lexer não conhece
 def t_error(t):
-    # Calcula a coluna (posição dentro da linha)
-    last_cr = t.lexer.lexdata.rfind('\n', 0, t.lexpos)
-    if last_cr < 0:
-        column = t.lexpos + 1
-    else:
-        column = (t.lexpos - last_cr)
+    # Reporta o erro léxico passando o primeiro carácter inválido
+    Errors.report('lex', t.lineno, 'CHAR_ILEGAL', char=t.value[0])
+    t.lexer.skip(1)  # Salta o carácter problemático e continua
 
-    print(f"Erro Léxico: Carácter '{t.value[0]}' ilegal na linha {t.lineno}, coluna {column}")
-    
-    # Continuamos a percorrer o código para ver se há mais erros
-    t.lexer.skip(1)
-
-# Construir o lexer
 lexer = lex.lex()
