@@ -13,13 +13,19 @@ class Errors:
         'ARG_TIPO':             "Argumento '{param}' com tipo inválido: esperava '{esperado}', recebeu '{recebido}'.",
         'ASSIGN_TIPO':          "Não é possível atribuir '{recebido}' à variável '{nome}' do tipo '{esperado}'.",
         'NAO_E_ARRAY':          "'{nome}' não é um array.",
-        'E_ARRAY':              "'{nome}' é um array e não pode ser usado como escalar.",
+        'E_ARRAY':              "'{nome}' é array e não pode ser usado como escalar.",
         'INDICE_TIPO':          "O índice do array '{nome}' deve ser INTEGER, recebeu '{recebido}'.",
+        'OUT_OF_BOUNDS': "Índice fora dos limites para o array '{nome}'. Tamanho máximo é {tamanho}, mas recebeu {recebido}.",
         'DO_LABEL_N_EXISTE':    "O label '{label}' do ciclo DO não existe.",
         'DO_LABEL_SEM_CONTINUE':"O label '{label}' do ciclo DO não corresponde a um CONTINUE.",
         'GOTO_LABEL_N_EXISTE':  "O label '{label}' do GOTO não existe.",
+        'LABEL_DUPLICADO':      "O label '{label}' já foi declarado neste escopo.",
         'RETURN_FORA_SUBPROG':  "RETURN fora de uma FUNCTION ou SUBROUTINE.",
         'FUNC_SEM_RETURN':      "A FUNCTION '{nome}' pode não retornar um valor.",
+
+        # Avisos
+        'TRUNC_VAL':            "Atribuição de REAL a INTEGER na variável '{nome}'. O valor será truncado!",
+        'VAR_N_USADA':          "A variável '{nome}' foi declarada, mas nunca utilizada.",
 
         # Erros sintáticos
         'TOKEN_INESPERADO':     "Token inesperado '{token}' (tipo: {tipo_token}).",
@@ -47,11 +53,15 @@ class Errors:
     def get(tipo, linha, chave, **kwargs):
         """
         Uso: Errors.get('sem', 10, 'VAR_N_EXISTE', nome='X')
+        Uso para avisos: Errors.get('w', 15, 'TRUNC_VAL', nome='Y')
         """
+        # Ignora avisos se a flag estiver a False
         if tipo == 'w' and not Errors.FLAG_WARNINGS:
             return None
 
         prefixo = Errors.TIPOS.get(tipo, 'Erro')
+        
+        # Amarelo para avisos, Vermelho para erros
         cor = Colors.YELLOW if tipo == 'w' else Colors.RED
         template = Errors.MENSAGENS.get(chave, "Erro desconhecido.")
 

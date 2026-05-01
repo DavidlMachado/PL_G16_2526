@@ -110,7 +110,8 @@ def p_declaration(p):
     """
     declaration : type var_decl_list
     """
-    p[0] = ('DECLARE', p[1], p[2])
+    line = p.lineno(1)
+    p[0] = ('DECLARE', p[1], p[2], line)
 
 def p_type(p):
     """
@@ -301,7 +302,8 @@ def p_expression_function_call(p):
     """
     # Cobre MOD(X,Y), chamadas a FUNCTION, e acesso a arrays como NUMS(I)
     # A distinção array vs função será feita na análise semântica
-    p[0] = ('CALL', p[1], p[3])
+    line = p.lineno(1)
+    p[0] = ('CALL', p[1], p[3], line)
 
 def p_expression_unary(p):
     """
