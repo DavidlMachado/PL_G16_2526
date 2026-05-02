@@ -1,7 +1,7 @@
 class Colors:
-    VERDE = '\033[92m'
-    AZUL = '\033[94m'
-    AMARELO = '\033[93m'
-    VERMELHO = '\033[91m'
+    GREEN = '\033[92m'
+    BLUE = '\033[94m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
     RESET = '\033[0m'
-    NEGRITO = '\033[1m'
+    BOLD = '\033[1m'
