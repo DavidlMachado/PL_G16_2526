@@ -9,6 +9,7 @@ class Errors:
         'VAR_N_EXISTE':         "A variável '{nome}' não foi declarada.",
         'TIPO_INCOMPATIVEL':    "Tipo incompatível: esperava '{esperado}', recebeu '{recebido}'.",
         'FUNCAO_N_DECLARADA':   "A função/subrotina '{nome}' não foi declarada.",
+        'FUNC_DUPLICADA':       "A função/subrotina '{nome}' já foi definida.",
         'NUM_ARGS':             "Número de argumentos inválido para '{nome}': esperava {esperado}, recebeu {recebido}.",
         'ARG_TIPO':             "Argumento '{param}' com tipo inválido: esperava '{esperado}', recebeu '{recebido}'.",
         'ASSIGN_TIPO':          "Não é possível atribuir '{recebido}' à variável '{nome}' do tipo '{esperado}'.",
@@ -26,6 +27,7 @@ class Errors:
         # Avisos
         'TRUNC_VAL':            "Atribuição de REAL a INTEGER na variável '{nome}'. O valor será truncado!",
         'VAR_N_USADA':          "A variável '{nome}' foi declarada, mas nunca utilizada.",
+        'FUNC_N_USADA':          "A função/soubrotina '{nome}' foi declarada, mas nunca chamada.",
 
         # Erros sintáticos
         'TOKEN_INESPERADO':     "Token inesperado '{token}' (tipo: {tipo_token}).",

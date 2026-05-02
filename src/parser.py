@@ -57,19 +57,22 @@ def p_function_subprogram(p):
     """
     if len(p) == 10:
         # Com tipo de retorno explícito: INTEGER FUNCTION CONVRT(N, B)
-        p[0] = ('FUNCTION', p[3], p[1], p[4], p[7], p[8])
+        line = p.lineno(2)
+        p[0] = ('FUNCTION', p[3], p[1], p[4], p[7], p[8], line)
     else:
-        p[0] = ('FUNCTION', p[2], None, p[3], p[6], p[7])
+        line = p.lineno(1)
+        p[0] = ('FUNCTION', p[2], None, p[3], p[6], p[7], line)
 
 def p_subroutine_subprogram(p):
     """
     subroutine_subprogram : SUBROUTINE VAR '(' param_list ')' declaration_section executable_section END
                           | SUBROUTINE VAR '(' ')' declaration_section executable_section END
     """
+    line = p.lineno(1)
     if len(p) == 9:
-        p[0] = ('SUBROUTINE', p[2], p[4], p[6], p[7])
+        p[0] = ('SUBROUTINE', p[2], p[4], p[6], p[7], line)
     else:
-        p[0] = ('SUBROUTINE', p[2], [], p[5], p[6])
+        p[0] = ('SUBROUTINE', p[2], [], p[5], p[6], line)
 
 def p_param_list(p):
     """
@@ -110,8 +113,7 @@ def p_declaration(p):
     """
     declaration : type var_decl_list
     """
-    line = p.lineno(1)
-    p[0] = ('DECLARE', p[1], p[2], line)
+    p[0] = ('DECLARE', p[1], p[2])
 
 def p_type(p):
     """
@@ -138,10 +140,11 @@ def p_var_decl(p):
              | VAR '(' INTVAL ')'
     """
     # Suporte a arrays: INTEGER NUMS(5)
+    line = p.lineno(1)
     if len(p) == 2:
-        p[0] = ('SCALAR', p[1])
+        p[0] = ('SCALAR', p[1], line)
     else:
-        p[0] = ('ARRAY', p[1], p[3])
+        p[0] = ('ARRAY', p[1], p[3], line)
 
 # --- Statements ---
 
@@ -193,10 +196,11 @@ def p_if_statement(p):
     if_statement : IF '(' expression ')' THEN executable_section ENDIF
                  | IF '(' expression ')' THEN executable_section ELSE executable_section ENDIF
     """
+    line = p.lineno(1)  # linha do token IF
     if len(p) == 8:
-        p[0] = ('IF', p[3], p[6], [])
+        p[0] = ('IF', p[3], p[6], [], line)
     else:
-        p[0] = ('IF', p[3], p[6], p[8])
+        p[0] = ('IF', p[3], p[6], p[8], line)
 
 def p_do_statement(p):
     """
@@ -219,19 +223,22 @@ def p_continue_statement(p):
     """
     continue_statement : CONTINUE
     """
-    p[0] = ('CONTINUE',)
+    line = p.lineno(1)
+    p[0] = ('CONTINUE', line)
 
 def p_return_statement(p):
     """
     return_statement : RETURN
     """
-    p[0] = ('RETURN',)
+    line = p.lineno(1)
+    p[0] = ('RETURN', line)
 
 def p_stop_statement(p):
     """
     stop_statement : STOP
     """
-    p[0] = ('STOP',)
+    line = p.lineno(1)
+    p[0] = ('STOP', line)
 
 def p_call_statement(p):
     """
@@ -251,19 +258,30 @@ def p_print_statement(p):
 
 def p_read_statement(p):
     """
-    read_statement : READ '*' ',' var_list
+    read_statement : READ '*' ',' read_list
     """
-    p[0] = ('READ', p[4])
+    line = p.lineno(1)
+    p[0] = ('READ', p[4], line)
 
-def p_var_list(p):
+def p_read_list(p):
     """
-    var_list : VAR
-             | var_list ',' VAR
+    read_list : read_item
+              | read_list ',' read_item
     """
     if len(p) == 2:
         p[0] = [p[1]]
     else:
         p[0] = p[1] + [p[3]]
+
+def p_read_item(p):
+    """
+    read_item : VAR
+              | VAR '(' expression ')'
+    """
+    if len(p) == 2:
+        p[0] = ('VAR', p[1], p.lineno(1))
+    else:
+        p[0] = ('ARRAY_ACCESS', p[1], p[3], p.lineno(1))
 
 # --- Expressões ---
 
@@ -310,10 +328,11 @@ def p_expression_unary(p):
     expression : NOT expression
                | '-' expression %prec UMINUS
     """
+    line = p.lineno(1)
     if p[1] == '-':
-        p[0] = ('UMINUS', p[2])
+        p[0] = ('UMINUS', p[2], line)
     else:
-        p[0] = ('NOT', p[2])
+        p[0] = ('NOT', p[2], line)
 
 def p_expression_group(p):
     """

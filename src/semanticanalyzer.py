@@ -65,7 +65,37 @@ class SemanticAnalyzer:
         self.warnings = []
 
         self.declared_labels = set()   # Ex: todos os números antes do CONTINUE
-        self.expected_labels = set() # Ex: os números que os DOs dizem que vão fechar
+        self.do_labels = set()      # labels pedidos por DO
+        self.goto_labels = set()    # labels pedidos por GOTO
+
+        self.BINOPS = {'+', '-', '*', '/', '**', 'LT', 'LE', 'EQ', 'NE', 'GT', 'GE', 'AND', 'OR'}
+
+        self._register_builtins()
+
+    def _register_builtins(self):
+        """Regista as funções intrínsecas do Fortran 77 na tabela de símbolos global."""
+        builtins = {
+            'MOD':   'INTEGER',   # MOD(A, B) -> resto da divisão
+            'ABS':   'REAL',      # ABS(X) -> valor absoluto
+            'SQRT':  'REAL',      # SQRT(X) -> raiz quadrada
+            'INT':   'INTEGER',   # INT(X) -> conversão para inteiro
+            'REAL':  'REAL',      # REAL(X) -> conversão para real
+            'MAX':   'REAL',      # MAX(A, B, ...) -> máximo
+            'MIN':   'REAL',      # MIN(A, B, ...) -> mínimo
+            'FLOAT': 'REAL',      # FLOAT(X) -> conversão para real
+            'IABS':  'INTEGER',   # IABS(X) -> valor absoluto inteiro
+            'IFIX':  'INTEGER',   # IFIX(X) -> conversão para inteiro
+        }
+
+        for name, return_type in builtins.items():
+            # Registamos os built-ins como usados para no final nao dar warning de inutilização
+            self.symbol_table.scopes['global'][name] = {
+                'type': return_type,
+                'is_array': False,
+                'size': None,
+                'used': True, 
+                'line': None
+            }
 
     def add_error(self, error):
         if error:
@@ -81,9 +111,17 @@ class SemanticAnalyzer:
         """Método despachante genérico (dispatch) do Visitor Pattern."""
         if node is None:
             return None
-                
-        method_name = f"visit_{node[0]}"
+
+        tag = node[0]
+        if tag in self.BINOPS:
+            return self.visit_BINOP(node)
+
+        method_name = f"visit_{tag}"
         visitor = getattr(self, method_name, None)
+
+        if visitor is None:
+            return 'UNKNOWN'
+
         return visitor(node)
 
     def visit_CONST(self, node):
@@ -213,25 +251,25 @@ class SemanticAnalyzer:
 
     def visit_DECLARE(self, node):
         """
-        Recebe um nodo do tipo ('DECLARE', type, vars_list, line)
+        Recebe um nodo do tipo ('DECLARE', type, vars_list)
         Exemplo: INTEGER X, Y, Z(10)
         O objetivo é registar cada variável na Symbol Table com o tipo correto.
         """
         type_vars = node[1]
         vars_list = node[2]
-        line = node[-1]
 
         for var in vars_list:
             # var pode ser ('SCALAR', 'X') ou ('ARRAY', 'Z', size)
             var_type = var[0]
             var_name = var[1]
+            line = var[-1]
 
             try:
                 if var_type == 'SCALAR':
-                    self.symbol_table.declare(var_name, type_vars, False, line)
+                    self.symbol_table.declare(var_name, type_vars, is_array=False, line=line)
 
                 elif var_type == 'ARRAY':
-                    self.symbol_table.declare(var_name, type_vars, True, var[2], line)
+                    self.symbol_table.declare(var_name, type_vars, is_array=True, size=var[2], line=line)
 
             except SemanticError as e:
                 self.add_error(str(e))
@@ -245,7 +283,7 @@ class SemanticAnalyzer:
         line = node[-1]
 
         if label_num in self.declared_labels:
-            msg = Errors.get('sem', line, 'LABEL_DUPLICADO', 10)
+            msg = Errors.get('sem', line, 'LABEL_DUPLICADO', label=label_num)
             self.add_error(msg)
         
         else:
@@ -257,7 +295,7 @@ class SemanticAnalyzer:
     def visit_GOTO(self, node):
         """Recebe um nodo do tipo ('GOTO', 10) e regista que o programa quer saltar para um label."""
         target_label = node[1]
-        self.expected_labels.add(target_label)
+        self.goto_labels.add(target_label)
         return None
 
     def visit_DO(self, node):
@@ -266,16 +304,14 @@ class SemanticAnalyzer:
         Validates the label, the control variable and the numeric expressions.
         """
         expected_label = node[1]
-        var = node[2]
+        var_name = node[2]
         start_expr = node[3]
         end_expr = node[4]
         step_expr = node[5]
         line = node[-1]
 
         # Adiciona esta label às esperadas
-        self.expected_labels.add(expected_label)
-
-        var_name = var[1]
+        self.do_labels.add(expected_label)
 
         try:
             # Caso a variável exista verificamos se é um integer ou real
@@ -406,12 +442,182 @@ class SemanticAnalyzer:
             self.add_error(msg)
             return 'UNKNOWN'
 
+    def visit_IF(self, node):
+        """
+        Recebe um nodo do tipo ('IF', condition, then_block, else_block, line) 
+        e verifica se a condição é lógica e visita os blocos.
+        """
+        condition = node[1]
+        then_block = node[2]
+        else_block = node[3]
+        line = node[-1]
+
+        cond_type = self.visit(condition)
+        if cond_type not in ('UNKNOWN', 'LOGICAL'):
+            msg = Errors.get('sem', line, 'TIPO_INCOMPATIVEL', esperado='LOGICAL', recebido=cond_type)
+            self.add_error(msg)
+
+        for stmt in then_block:
+            self.visit(stmt)
+
+        for stmt in else_block:
+            self.visit(stmt)
+
+    def visit_PRINT(self, node):
+        """Recebe um nodo do tipo ('PRINT', expression_list) e visita cada expressão da lista."""
+        for expr in node[1]:
+            self.visit(expr)
+
+    def visit_READ(self, node):
+        """Recebe um nodo do tipo ('READ', read_list, line) e verifica se cada item foi declarado."""
+        for item in node[1]:
+            self.visit(item)
+
+    def visit_CONTINUE(self, node):
+        """Recebe um nodo do tipo ('CONTINUE',) e não faz nada (instrução de marcação)."""
+        return None
+
+    def visit_STOP(self, node):
+        """Recebe um nodo do tipo ('STOP',) e não faz nada (termina o programa em runtime)."""
+        return None
+
+    def visit_RETURN(self, node):
+        """Recebe um nodo do tipo ('RETURN', line) e verifica se está dentro de uma FUNCTION ou SUBROUTINE."""
+        line = node[-1]
+        if self.symbol_table.current_scope == 'global':
+            msg = Errors.get('sem', line, 'RETURN_FORA_SUBPROG')
+            self.add_error(msg)
+        return None
+
+    def visit_UMINUS(self, node):
+        """Recebe um nodo do tipo ('UMINUS', expression, line) e verifica se a expressão é numérica."""
+        line = node[-1]
+        type_val = self.visit(node[1])
+        if type_val not in ('UNKNOWN', 'INTEGER', 'REAL'):
+            msg = Errors.get('sem', line, 'TIPO_INCOMPATIVEL', esperado='INTEGER ou REAL', recebido=type_val)
+            self.add_error(msg)
+            return 'UNKNOWN'
+        return type_val
+
+    def visit_NOT(self, node):
+        """Recebe um nodo do tipo ('NOT', expression) e verifica se a expressão é lógica."""
+        line = node[-1]
+        type_val = self.visit(node[1])
+        if type_val not in ('UNKNOWN', 'LOGICAL'):
+            msg = Errors.get('sem', line, 'TIPO_INCOMPATIVEL', esperado='LOGICAL', recebido=type_val)
+            self.add_error(msg)
+            return 'UNKNOWN'
+        return 'LOGICAL'
+
+    def visit_PROGRAM(self, node):
+        """Recebe um nodo do tipo ('PROGRAM', nome, declarações, statements) e visita todas as declarações e instruções."""
+        for decl in node[2]:
+            self.visit(decl)
+
+        for stmt in node[3]:
+            self.visit(stmt)
+
+    def _has_return(self, stmts):
+        """Verifica se existe pelo menos um RETURN acessível na lista de statements."""
+        for stmt in stmts:
+            if stmt is None:
+                continue
+            tag = stmt[0]
+            if tag == 'RETURN':
+                return True
+            if tag == 'LABEL':
+                # ('LABEL', num, instrução, line)
+                if self._has_return([stmt[2]]):
+                    return True
+            if tag == 'IF':
+                # Se AMBOS os ramos têm return, é garantido
+                # Se só um tem, não é garantido (usamos aviso, não erro)
+                if self._has_return(stmt[2]) or self._has_return(stmt[3]):
+                    return True
+        return False
+
+    def visit_FUNCTION(self, node):
+        """
+        Recebe um nodo do tipo ('FUNCTION', nome, tipo_retorno, params, declarações, statements, line) 
+        e verifica se a função tem RETURN.
+        """
+        name = node[1]
+        return_type = node[2]
+        line = node[-1]
+
+        try:
+            self.symbol_table.declare(name, return_type, line=line)
+
+        except SemanticError:
+            # Em Fortran 77 é válido pré-declarar o tipo da função no programa chamador
+            # Verificamos se o tipo é compatível
+            existing = self.symbol_table.scopes['global'].get(name)
+            if existing and existing.get('type') != return_type:
+                msg = Errors.get('sem', line, 'FUNC_DUPLICADA', nome=name)
+                self.add_error(msg)
+                return
+
+        # Regista e entra no scope
+        self.symbol_table.enter_scope(name)
+
+        declarations = node[4]
+        statements = node[5]
+
+        # Visita todas as declarações
+        for decl in declarations:
+            self.visit(decl)
+        # Visita todos os statements
+        for stmt in statements:
+            self.visit(stmt)
+
+        # Verifica se a função tem um RETURN
+        if not self._has_return(statements):
+            msg = Errors.get('sem', None, 'FUNC_SEM_RETURN', nome=name)
+            self.add_error(msg)
+
+        self.symbol_table.leave_scope()
+
+    def visit_SUBROUTINE(self, node):
+        """
+        Recebe um nodo do tipo ('SUBROUTINE', nome, params, declarações, statements, line) 
+        e visita todas as declarações e instruções.
+        """
+        name = node[1]
+        line = node[-1]
+
+        # Regista a subroutine (ela não tem tipo de retorno)
+        try:
+            self.symbol_table.declare(name, None, line=line)
+        except SemanticError:
+            msg = Errors.get('sem', line, 'FUNC_DUPLICADA', nome=name)
+            self.add_error(msg)
+            return
+
+        # Regista e entra no scope
+        self.symbol_table.enter_scope(name)
+
+        declarations = node[3]
+        statements = node[4]
+
+        # Visita todas as declarações
+        for decl in declarations:
+            self.visit(decl)
+        # Visita todos os statements
+        for stmt in statements:
+            self.visit(stmt)
+
+        self.symbol_table.leave_scope()
+
     def check_unresolved_labels(self):
         """Corre no final da análise semântica e verifica se há labels em falta"""
-        missing_labels = self.expected_labels - self.declared_labels
-
-        for label in missing_labels:
+        # Verifica labels de DO
+        for label in self.do_labels - self.declared_labels:
             msg = Errors.get('sem', 'Fim', 'DO_LABEL_N_EXISTE', label=label)
+            self.add_error(msg)
+
+        # Verifica labels de GOTO
+        for label in self.goto_labels - self.declared_labels:
+            msg = Errors.get('sem', 'Fim', 'GOTO_LABEL_N_EXISTE', label=label)
             self.add_error(msg)
 
     def check_unused_variables(self):
@@ -419,12 +625,19 @@ class SemanticAnalyzer:
         for scope_name, scope_vars in self.symbol_table.scopes.items():
             for name, info in scope_vars.items():
                 if not info['used']:
-                    msg = Errors.get('w', info['line'], 'VAR_N_USADA', nome=name)
+                    # Diferenciamos funções e subroutines através do scope
+                    if name in self.symbol_table.scopes:
+                        msg = Errors.get('w', info['line'], 'FUNC_N_USADA', nome=name)
+                    else:
+                        msg = Errors.get('w', info['line'], 'VAR_N_USADA', nome=name)
                     self.add_warning(msg)
 
-   def analyze(self, ast):
+    def analyze(self, ast):
         """Ponto de entrada do Analisador Semântico."""
-        self.visit(ast)
+        for unit in ast:
+            self.visit(unit)
+
         self.check_unresolved_labels()
         self.check_unused_variables()
+
         return len(self.errors) == 0

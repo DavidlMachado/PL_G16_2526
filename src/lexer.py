@@ -97,6 +97,9 @@ def t_VAR(t):
 def t_error(t):
     # Reporta o erro léxico passando o primeiro carácter inválido
     Errors.report('lex', t.lineno, 'CHAR_ILEGAL', char=t.value[0])
+    t.lexer.error_count += 1
     t.lexer.skip(1)  # Salta o carácter problemático e continua
 
 lexer = lex.lex()
+lexer.line_start = 0
+lexer.error_count = 0
