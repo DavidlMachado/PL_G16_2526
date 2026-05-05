@@ -70,9 +70,9 @@ class SemanticAnalyzer:
 
         self.BINOPS = {'+', '-', '*', '/', '**', 'LT', 'LE', 'EQ', 'NE', 'GT', 'GE', 'AND', 'OR'}
 
-        self._register_builtins()
+        self.register_builtins()
 
-    def _register_builtins(self):
+    def register_builtins(self):
         """Regista as funções intrínsecas do Fortran 77 na tabela de símbolos global."""
         builtins = {
             'MOD':   'INTEGER',   # MOD(A, B) -> resto da divisão
@@ -106,6 +106,10 @@ class SemanticAnalyzer:
         if warning:
             self.warnings.append(warning)
             print(warning)
+
+    # -------------------------------------------------------------------------
+    # Métodos de visita a cada tipo de nodo
+    # -------------------------------------------------------------------------
 
     def visit(self, node):
         """Método despachante genérico (dispatch) do Visitor Pattern."""
@@ -293,7 +297,7 @@ class SemanticAnalyzer:
         return self.visit(instruction)
 
     def visit_GOTO(self, node):
-        """Recebe um nodo do tipo ('GOTO', 10) e regista que o programa quer saltar para um label."""
+        """Recebe um nodo do tipo ('GOTO', 10, line) e regista que o programa quer saltar para um label."""
         target_label = node[1]
         self.goto_labels.add(target_label)
         return None
@@ -560,6 +564,11 @@ class SemanticAnalyzer:
         # Regista e entra no scope
         self.symbol_table.enter_scope(name)
 
+        # Injetamos uma variável local com o nome da função para receber o valor de retorno.
+        # Isto evita que a atribuição interna (ex: FOO = X) marque a função no scope global 
+        # como 'used', permitindo ao otimizador removê-la se ela nunca for chamada.
+        self.symbol_table.declare(name, return_type, line=line)
+
         declarations = node[4]
         statements = node[5]
 
@@ -608,6 +617,10 @@ class SemanticAnalyzer:
 
         self.symbol_table.leave_scope()
 
+    # -------------------------------------------------------------------------
+    # Verificações finais
+    # -------------------------------------------------------------------------
+
     def check_unresolved_labels(self):
         """Corre no final da análise semântica e verifica se há labels em falta"""
         # Verifica labels de DO
@@ -625,17 +638,30 @@ class SemanticAnalyzer:
         for scope_name, scope_vars in self.symbol_table.scopes.items():
             for name, info in scope_vars.items():
                 if not info['used']:
-                    # Diferenciamos funções e subroutines através do scope
-                    if name in self.symbol_table.scopes:
+                    # Scope global e é um subprograma
+                    if scope_name == 'global' and name in self.symbol_table.scopes:
                         msg = Errors.get('w', info['line'], 'FUNC_N_USADA', nome=name)
+                        self.add_warning(msg)
+                    
+                    # É a variável local de retorno logo ignoramos
+                    elif scope_name != 'global' and name == scope_name:
+                        # A função tem return mas nnc atribui um valor
+                        msg = Errors.get('sem', info['line'], 'FUNC_SEM_VALOR', nome=name)
+                        self.add_error(msg)
+                    
+                    # Restantes variáveis normais
                     else:
                         msg = Errors.get('w', info['line'], 'VAR_N_USADA', nome=name)
-                    self.add_warning(msg)
+                        self.add_warning(msg)
+
+    # -------------------------------------------------------------------------
+    # Método principal 
+    # -------------------------------------------------------------------------
 
     def analyze(self, ast):
         """Ponto de entrada do Analisador Semântico."""
-        for unit in ast:
-            self.visit(unit)
+        for node in ast:
+            self.visit(node)
 
         self.check_unresolved_labels()
         self.check_unused_variables()

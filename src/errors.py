@@ -23,6 +23,7 @@ class Errors:
         'LABEL_DUPLICADO':      "O label '{label}' já foi declarado neste escopo.",
         'RETURN_FORA_SUBPROG':  "RETURN fora de uma FUNCTION ou SUBROUTINE.",
         'FUNC_SEM_RETURN':      "A FUNCTION '{nome}' pode não retornar um valor.",
+        'FUNC_SEM_VALOR': "A função '{nome}' não atribuiu nenhum valor de retorno a si mesma.",
 
         # Avisos
         'TRUNC_VAL':            "Atribuição de REAL a INTEGER na variável '{nome}'. O valor será truncado!",

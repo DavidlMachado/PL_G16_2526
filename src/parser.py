@@ -217,7 +217,8 @@ def p_goto_statement(p):
     """
     goto_statement : GOTO INTVAL
     """
-    p[0] = ('GOTO', p[2])
+    line = p.lineno(1)
+    p[0] = ('GOTO', p[2], line)
 
 def p_continue_statement(p):
     """

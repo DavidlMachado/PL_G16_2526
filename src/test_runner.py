@@ -1,6 +1,6 @@
 """
 Test runner para o compilador Fortran 77.
-Corre testes léxicos, sintáticos e semânticos e mostra os resultados.
+Corre testes léxicos, sintáticos, semânticos e de otimização e mostra os resultados.
 
 Uso: python3 test_runner.py
 """
@@ -18,6 +18,95 @@ BLUE   = '\033[94m'
 BOLD   = '\033[1m'
 RESET  = '\033[0m'
 
+# ─── Funções de verificação da AST ───────────────────────────────────────────
+
+def ast_find_program(ast, name=None):
+    """Devolve o nodo PROGRAM da AST (ou o primeiro se name=None)."""
+    for node in ast:
+        if node[0] == 'PROGRAM':
+            if name is None or node[1] == name:
+                return node
+    return None
+
+def ast_find_unit(ast, tag, name):
+    """Devolve um nodo FUNCTION ou SUBROUTINE com o nome dado."""
+    for node in ast:
+        if node[0] == tag and node[1] == name:
+            return node
+    return None
+
+def ast_has_unit(ast, tag, name):
+    """Verifica se existe uma FUNCTION ou SUBROUTINE com o nome dado na AST."""
+    return ast_find_unit(ast, tag, name) is not None
+
+def ast_var_declared(program_node, var_name):
+    """Verifica se uma variável ainda está declarada no programa."""
+    # Declarações estão em node[2] para PROGRAM, node[4] para FUNCTION, node[3] para SUBROUTINE
+    tag = program_node[0]
+    if tag == 'PROGRAM':
+        decls = program_node[2]
+    elif tag == 'FUNCTION':
+        decls = program_node[4]
+    elif tag == 'SUBROUTINE':
+        decls = program_node[3]
+    else:
+        return False
+
+    for decl in decls:
+        for var in decl[2]:
+            if var[1] == var_name:
+                return True
+    return False
+
+def ast_count_stmts(stmts, tag):
+    """Conta statements com uma determinada tag numa lista de statements (não recursivo)."""
+    return sum(1 for s in stmts if s is not None and s[0] == tag)
+
+def ast_get_stmts(program_node):
+    """Devolve a lista de statements de um nodo de programa."""
+    tag = program_node[0]
+    if tag == 'PROGRAM':
+        return program_node[3]
+    elif tag == 'FUNCTION':
+        return program_node[5]
+    elif tag == 'SUBROUTINE':
+        return program_node[4]
+    return []
+
+def ast_stmts_after_goto(stmts):
+    """
+    Verifica se existem statements não-LABEL após um GOTO.
+    Devolve True se houver dead code, False se o optimizer limpou tudo.
+    """
+    for i, stmt in enumerate(stmts):
+        if stmt is not None and stmt[0] == 'GOTO':
+            # Verifica o que vem a seguir
+            for next_stmt in stmts[i+1:]:
+                if next_stmt is not None and next_stmt[0] != 'LABEL':
+                    return True  # há dead code
+    return False  # está limpo
+
+def ast_stmts_after_goto_recursive(stmts):
+    """Versão recursiva que desce em IFs e LABELs."""
+    if ast_stmts_after_goto(stmts):
+        return True
+    for stmt in stmts:
+        if stmt is None:
+            continue
+        if stmt[0] == 'IF':
+            if ast_stmts_after_goto_recursive(stmt[2]):  # then_block
+                return True
+            if ast_stmts_after_goto_recursive(stmt[3]):  # else_block
+                return True
+        if stmt[0] == 'LABEL':
+            inner = stmt[2]
+            if inner and inner[0] == 'IF':
+                if ast_stmts_after_goto_recursive(inner[2]):
+                    return True
+                if ast_stmts_after_goto_recursive(inner[3]):
+                    return True
+    return False
+
 # ─── Definição dos testes ────────────────────────────────────────────────────
 
 TESTS = [
@@ -31,9 +120,9 @@ TESTS = [
  PRINT *, 'Ola, Mundo!'
  END
 """,
-        'expect_lex_ok':  True,
+        'expect_lex_ok':   True,
         'expect_parse_ok': True,
-        'expect_sem_ok':  True,
+        'expect_sem_ok':   True,
     },
 
     {
@@ -50,9 +139,9 @@ TESTS = [
  PRINT *, 'Fatorial de ', N, ': ', FAT
  END
 """,
-        'expect_lex_ok':  True,
+        'expect_lex_ok':   True,
         'expect_parse_ok': True,
-        'expect_sem_ok':  True,
+        'expect_sem_ok':   True,
     },
 
     {
@@ -79,9 +168,9 @@ TESTS = [
  ENDIF
  END
 """,
-        'expect_lex_ok':  True,
+        'expect_lex_ok':   True,
         'expect_parse_ok': True,
-        'expect_sem_ok':  True,
+        'expect_sem_ok':   True,
     },
 
     {
@@ -99,9 +188,9 @@ TESTS = [
  PRINT *, 'A soma dos numeros e: ', SOMA
  END
 """,
-        'expect_lex_ok':  True,
+        'expect_lex_ok':   True,
         'expect_parse_ok': True,
-        'expect_sem_ok':  True,
+        'expect_sem_ok':   True,
     },
 
     {
@@ -132,26 +221,26 @@ TESTS = [
  RETURN
  END
 """,
-        'expect_lex_ok':  True,
+        'expect_lex_ok':   True,
         'expect_parse_ok': True,
-        'expect_sem_ok':  True,
+        'expect_sem_ok':   True,
     },
 
-    # ── Teste extra: erro léxico ──────────────────────────────────────────────
+    # ── Erro léxico ───────────────────────────────────────────────────────────
 
     {
         'name': 'Erro Léxico - Carácter ilegal @',
         'code': """\
  PROGRAM ERRO
- A = 10 @ ! O @ nao existe no Fortran
+ A = 10 @ ! O @ não existe em Fortran
  END
 """,
-        'expect_lex_ok':  False,   # deve detetar o @
-        'expect_parse_ok': None,   # None = não testamos (pode falhar ou não)
-        'expect_sem_ok':  None,
+        'expect_lex_ok':   False,
+        'expect_parse_ok': None,
+        'expect_sem_ok':   None,
     },
 
-    # ── Testes semânticos ─────────────────────────────────────────────────────
+    # ── Erros semânticos ──────────────────────────────────────────────────────
 
     {
         'name': 'Erro Semântico - Variável não declarada',
@@ -161,9 +250,9 @@ TESTS = [
  Y = 10
  END
 """,
-        'expect_lex_ok':  True,
+        'expect_lex_ok':   True,
         'expect_parse_ok': True,
-        'expect_sem_ok':  False,   # Y não declarada
+        'expect_sem_ok':   False,
     },
 
     {
@@ -174,9 +263,9 @@ TESTS = [
  INTEGER X
  END
 """,
-        'expect_lex_ok':  True,
+        'expect_lex_ok':   True,
         'expect_parse_ok': True,
-        'expect_sem_ok':  False,
+        'expect_sem_ok':   False,
     },
 
     {
@@ -189,9 +278,9 @@ TESTS = [
  X = Y
  END
 """,
-        'expect_lex_ok':  True,
+        'expect_lex_ok':   True,
         'expect_parse_ok': True,
-        'expect_sem_ok':  False,   # não se pode atribuir LOGICAL a INTEGER
+        'expect_sem_ok':   False,
     },
 
     {
@@ -203,9 +292,9 @@ TESTS = [
  RETURN
  END
 """,
-        'expect_lex_ok':  True,
+        'expect_lex_ok':   True,
         'expect_parse_ok': True,
-        'expect_sem_ok':  False,
+        'expect_sem_ok':   False,
     },
 
     {
@@ -216,9 +305,9 @@ TESTS = [
  X = X + 1
  END
 """,
-        'expect_lex_ok':  True,
+        'expect_lex_ok':   True,
         'expect_parse_ok': True,
-        'expect_sem_ok':  False,
+        'expect_sem_ok':   False,
     },
 
     {
@@ -229,9 +318,9 @@ TESTS = [
  ARR(5) = 10
  END
 """,
-        'expect_lex_ok':  True,
+        'expect_lex_ok':   True,
         'expect_parse_ok': True,
-        'expect_sem_ok':  False,
+        'expect_sem_ok':   False,
     },
 
     {
@@ -243,9 +332,9 @@ TESTS = [
  I = I + 1
  END
 """,
-        'expect_lex_ok':  True,
+        'expect_lex_ok':   True,
         'expect_parse_ok': True,
-        'expect_sem_ok':  False,   # label 99 nunca declarado
+        'expect_sem_ok':   False,
     },
 
     {
@@ -256,11 +345,308 @@ TESTS = [
  X = 5
  END
 """,
-        'expect_lex_ok':  True,
+        'expect_lex_ok':   True,
         'expect_parse_ok': True,
-        'expect_sem_ok':  True,    # sem erros, mas deve gerar aviso para Y
+        'expect_sem_ok':   True,
     },
 
+    # ── Testes do Optimizer ───────────────────────────────────────────────────
+
+    # --- Dead Code Elimination ---
+
+    {
+        'name': 'Optimizer - Dead code simples após GOTO',
+        'code': """\
+ PROGRAM TESTE
+ INTEGER X
+ X = 1
+ GOTO 10
+ X = 99
+ 10 CONTINUE
+ END
+""",
+        'expect_lex_ok':   True,
+        'expect_parse_ok': True,
+        'expect_sem_ok':   True,
+        'expect_opt_ok':   True,
+        # Verifica que não há dead code após GOTO na AST otimizada
+        'check_opt': lambda opt_ast: (
+            not ast_stmts_after_goto(ast_get_stmts(ast_find_program(opt_ast))),
+            "Dead code após GOTO devia ter sido removido"
+        ),
+    },
+
+    {
+        'name': 'Optimizer - Múltiplas instruções de dead code após GOTO',
+        'code': """\
+ PROGRAM TESTE
+ INTEGER X, Y, Z
+ X = 1
+ GOTO 10
+ X = 99
+ Y = 88
+ Z = 77
+ 10 CONTINUE
+ END
+""",
+        'expect_lex_ok':   True,
+        'expect_parse_ok': True,
+        'expect_sem_ok':   True,
+        'expect_opt_ok':   True,
+        'check_opt': lambda opt_ast: (
+            not ast_stmts_after_goto(ast_get_stmts(ast_find_program(opt_ast))),
+            "As 3 instruções de dead code deviam ter sido removidas"
+        ),
+    },
+
+    {
+        'name': 'Optimizer - Dead code dentro de IF (GOTO dentro do then_block)',
+        'code': """\
+ PROGRAM TESTE
+ INTEGER X
+ READ *, X
+ IF (X .GT. 0) THEN
+ GOTO 10
+ X = 99
+ ENDIF
+ 10 CONTINUE
+ END
+""",
+        'expect_lex_ok':   True,
+        'expect_parse_ok': True,
+        'expect_sem_ok':   True,
+        'expect_opt_ok':   True,
+        # Verifica recursivamente dentro dos blocos IF
+        'check_opt': lambda opt_ast: (
+            not ast_stmts_after_goto_recursive(ast_get_stmts(ast_find_program(opt_ast))),
+            "Dead code dentro do IF devia ter sido removido"
+        ),
+    },
+
+    {
+        'name': 'Optimizer - Dead code dentro de LABEL com IF',
+        'code': """\
+ PROGRAM TESTE
+ INTEGER X
+ READ *, X
+ 20 IF (X .GT. 0) THEN
+ GOTO 10
+ X = 55
+ ENDIF
+ 10 CONTINUE
+ END
+""",
+        'expect_lex_ok':   True,
+        'expect_parse_ok': True,
+        'expect_sem_ok':   True,
+        'expect_opt_ok':   True,
+        'check_opt': lambda opt_ast: (
+            not ast_stmts_after_goto_recursive(ast_get_stmts(ast_find_program(opt_ast))),
+            "Dead code dentro do LABEL+IF devia ter sido removido"
+        ),
+    },
+
+    {
+        'name': 'Optimizer - GOTO no else_block',
+        'code': """\
+ PROGRAM TESTE
+ INTEGER X
+ READ *, X
+ IF (X .GT. 0) THEN
+ X = 1
+ ELSE
+ GOTO 10
+ X = 99
+ ENDIF
+ 10 CONTINUE
+ END
+""",
+        'expect_lex_ok':   True,
+        'expect_parse_ok': True,
+        'expect_sem_ok':   True,
+        'expect_opt_ok':   True,
+        'check_opt': lambda opt_ast: (
+            not ast_stmts_after_goto_recursive(ast_get_stmts(ast_find_program(opt_ast))),
+            "Dead code no else_block devia ter sido removido"
+        ),
+    },
+
+    {
+        'name': 'Optimizer - Sem dead code (GOTO no fim)',
+        'code': """\
+ PROGRAM TESTE
+ INTEGER X
+ X = 1
+ GOTO 10
+ 10 CONTINUE
+ END
+""",
+        'expect_lex_ok':   True,
+        'expect_parse_ok': True,
+        'expect_sem_ok':   True,
+        'expect_opt_ok':   True,
+        # Não há dead code entre GOTO e LABEL, AST deve ficar igual
+        'check_opt': lambda opt_ast: (
+            not ast_stmts_after_goto(ast_get_stmts(ast_find_program(opt_ast))),
+            "Não devia haver dead code para remover"
+        ),
+    },
+
+    # --- Eliminar variáveis não usadas ---
+
+    {
+        'name': 'Optimizer - Variável não usada removida',
+        'code': """\
+ PROGRAM TESTE
+ INTEGER X, Y
+ X = 5
+ PRINT *, X
+ END
+""",
+        'expect_lex_ok':   True,
+        'expect_parse_ok': True,
+        'expect_sem_ok':   True,
+        'expect_opt_ok':   True,
+        # Y nunca é usada, deve ser removida das declarações
+        'check_opt': lambda opt_ast: (
+            not ast_var_declared(ast_find_program(opt_ast), 'Y'),
+            "Variável 'Y' devia ter sido removida das declarações"
+        ),
+    },
+
+    {
+        'name': 'Optimizer - Variável usada mantida',
+        'code': """\
+ PROGRAM TESTE
+ INTEGER X
+ X = 5
+ PRINT *, X
+ END
+""",
+        'expect_lex_ok':   True,
+        'expect_parse_ok': True,
+        'expect_sem_ok':   True,
+        'expect_opt_ok':   True,
+        # X é usada, deve ser mantida
+        'check_opt': lambda opt_ast: (
+            ast_var_declared(ast_find_program(opt_ast), 'X'),
+            "Variável 'X' devia ter sido mantida nas declarações"
+        ),
+    },
+
+    {
+        'name': 'Optimizer - Todas as variáveis não usadas removem a declaração inteira',
+        'code': """\
+ PROGRAM TESTE
+ INTEGER X, Y
+ PRINT *, 'ola'
+ END
+""",
+        'expect_lex_ok':   True,
+        'expect_parse_ok': True,
+        'expect_sem_ok':   True,
+        'expect_opt_ok':   True,
+        # X e Y não são usadas, a declaração inteira deve desaparecer
+        'check_opt': lambda opt_ast: (
+            not ast_var_declared(ast_find_program(opt_ast), 'X') and
+            not ast_var_declared(ast_find_program(opt_ast), 'Y'),
+            "Declaração inteira devia ter sido removida"
+        ),
+    },
+
+    # --- Eliminar funções/subrotinas não usadas ---
+
+    {
+        'name': 'Optimizer - Função não usada removida da AST',
+        'code': """\
+ PROGRAM TESTE
+ PRINT *, 'ola'
+ END
+ INTEGER FUNCTION FOO(X)
+ INTEGER X
+ FOO = X + 1
+ RETURN
+ END
+""",
+        'expect_lex_ok':   True,
+        'expect_parse_ok': True,
+        'expect_sem_ok':   True,
+        'expect_opt_ok':   True,
+        # FOO nunca é chamada, deve ser removida da AST
+        'check_opt': lambda opt_ast: (
+            not ast_has_unit(opt_ast, 'FUNCTION', 'FOO'),
+            "Função 'FOO' devia ter sido removida da AST"
+        ),
+    },
+
+    {
+        'name': 'Optimizer - Função usada mantida na AST',
+        'code': """\
+ PROGRAM TESTE
+ INTEGER R, FOO
+ R = FOO(5)
+ PRINT *, R
+ END
+ INTEGER FUNCTION FOO(X)
+ INTEGER X
+ FOO = X + 1
+ RETURN
+ END
+""",
+        'expect_lex_ok':   True,
+        'expect_parse_ok': True,
+        'expect_sem_ok':   True,
+        'expect_opt_ok':   True,
+        # FOO é chamada, deve ser mantida
+        'check_opt': lambda opt_ast: (
+            ast_has_unit(opt_ast, 'FUNCTION', 'FOO'),
+            "Função 'FOO' devia ter sido mantida na AST"
+        ),
+    },
+
+    {
+        'name': 'Optimizer - Variável não usada dentro de função',
+        'code': """\
+ PROGRAM TESTE
+ INTEGER R, FOO
+ R = FOO(5)
+ PRINT *, R
+ END
+ INTEGER FUNCTION FOO(X)
+ INTEGER X, TEMP
+ FOO = X + 1
+ RETURN
+ END
+""",
+        'expect_lex_ok':   True,
+        'expect_parse_ok': True,
+        'expect_sem_ok':   True,
+        'expect_opt_ok':   True,
+        # TEMP não é usada dentro de FOO, deve ser removida
+        'check_opt': lambda opt_ast: (
+            not ast_var_declared(ast_find_unit(opt_ast, 'FUNCTION', 'FOO'), 'TEMP'),
+            "Variável 'TEMP' devia ter sido removida de dentro da função 'FOO'"
+        ),
+    },
+
+    {
+        'name': 'Erro Semântico - FUNCTION sem atribuição de valor de retorno',
+        'code': """\
+ PROGRAM TESTE
+ INTEGER R, FOO
+ R = FOO(5)
+ PRINT *, R
+ END
+ INTEGER FUNCTION FOO(X)
+ INTEGER X
+ PRINT *, 'A calcular...'
+ RETURN
+ END
+""",
+        'expect_lex_ok':   True,
+        'expect_parse_ok': True,
+        'expect_sem_ok':   False,
+    },
 ]
 
 # ─── Funções auxiliares ───────────────────────────────────────────────────────
@@ -280,7 +666,8 @@ def print_result(label, ok, expected):
     print(f"  {status} {label}")
 
 def run_test(test):
-    """Corre um teste e devolve (lex_ok, parse_ok, sem_ok)."""
+    """Corre um teste e devolve (lex_ok, parse_ok, sem_ok, opt_ok, opt_ast)."""
+
     code = test['code']
 
     # ── Fase 1: Léxico ────────────────────────────────────────────────────────
@@ -315,6 +702,7 @@ def run_test(test):
         traceback.print_exc()
 
     # ── Fase 3: Semântico ─────────────────────────────────────────────────────
+    analyzer = None
     sem_ok = False
     if ast is not None:
         try:
@@ -325,7 +713,20 @@ def run_test(test):
             print(f"  {RED}[ERRO SEMÂNTICO INTERNO]: {e}{RESET}")
             traceback.print_exc()
 
-    return lex_ok, parse_ok, sem_ok
+    # ── Fase 4: Optimizer ─────────────────────────────────────────────────────
+    opt_ast = None
+    opt_ok = False
+    if sem_ok and ast is not None and analyzer is not None:
+        try:
+            from optimizer import Optimizer
+            optimizer = Optimizer(analyzer.symbol_table)
+            opt_ast = optimizer.optimize(ast)
+            opt_ok = opt_ast is not None
+        except Exception as e:
+            print(f"  {RED}[ERRO OPTIMIZER INTERNO]: {e}{RESET}")
+            traceback.print_exc()
+
+    return lex_ok, parse_ok, sem_ok, opt_ok, opt_ast
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
@@ -345,26 +746,48 @@ def main():
         print()
 
         try:
-            lex_ok, parse_ok, sem_ok = run_test(test)
+            lex_ok, parse_ok, sem_ok, opt_ok, opt_ast = run_test(test)
         except Exception as e:
             print(f"  {RED}Erro interno no test runner: {e}{RESET}")
             traceback.print_exc()
             failed += 1
             continue
 
-        exp_lex  = test.get('expect_lex_ok')
-        exp_par  = test.get('expect_parse_ok')
-        exp_sem  = test.get('expect_sem_ok')
+        exp_lex = test.get('expect_lex_ok')
+        exp_par = test.get('expect_parse_ok')
+        exp_sem = test.get('expect_sem_ok')
+        exp_opt = test.get('expect_opt_ok')
 
         print_result(f"Léxico   (obtido={'OK' if lex_ok else 'ERRO'}, esperado={'OK' if exp_lex else 'ERRO' if exp_lex is not None else '?'})", lex_ok, exp_lex)
         print_result(f"Sintaxe  (obtido={'OK' if parse_ok else 'ERRO'}, esperado={'OK' if exp_par else 'ERRO' if exp_par is not None else '?'})", parse_ok, exp_par)
         print_result(f"Semântica(obtido={'OK' if sem_ok else 'ERRO'}, esperado={'OK' if exp_sem else 'ERRO' if exp_sem is not None else '?'})", sem_ok, exp_sem)
 
-        # Conta como passou se todas as fases com expectativa definiram corretamente
+        if exp_opt is not None:
+            print_result(f"Optimizer(obtido={'OK' if opt_ok else 'ERRO'}, esperado={'OK' if exp_opt else 'ERRO'})", opt_ok, exp_opt)
+
+        # Verifica a AST otimizada se houver uma função de verificação
+        check_fn = test.get('check_opt')
+        check_passed = True
+        if check_fn and opt_ast is not None:
+            try:
+                result, msg = check_fn(opt_ast)
+                if result:
+                    print(f"  {GREEN}[OK]{RESET} Verificação AST: {msg}")
+                else:
+                    print(f"  {RED}[FALHOU]{RESET} Verificação AST: {msg}")
+                    check_passed = False
+            except Exception as e:
+                print(f"  {RED}[ERRO]{RESET} Verificação AST falhou com exceção: {e}")
+                traceback.print_exc()
+                check_passed = False
+
+        # Conta como passou se todas as fases com expectativa estiverem corretas
         checks = []
-        if exp_lex  is not None: checks.append(lex_ok  == exp_lex)
-        if exp_par  is not None: checks.append(parse_ok == exp_par)
-        if exp_sem  is not None: checks.append(sem_ok   == exp_sem)
+        if exp_lex is not None: checks.append(lex_ok  == exp_lex)
+        if exp_par is not None: checks.append(parse_ok == exp_par)
+        if exp_sem is not None: checks.append(sem_ok   == exp_sem)
+        if exp_opt is not None: checks.append(opt_ok   == exp_opt)
+        checks.append(check_passed)
 
         if all(checks):
             passed += 1
