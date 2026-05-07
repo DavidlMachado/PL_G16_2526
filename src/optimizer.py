@@ -63,7 +63,7 @@ class Optimizer:
 
         return ('PROGRAM', name, new_decls, new_stmts)
 
-    def _optimize_subprogram(self, node, is_function):
+    def optimize_subprogram(self, node, is_function):
         """Lógica comum entre FUNCTION e SUBROUTINE."""
         name = node[1]
 
@@ -101,7 +101,7 @@ class Optimizer:
         e verifica se a função é utilizada. Se n for remove a função para otimizar o programa, mas se ela
         for utilizada ele percorre as suas declarações e statements e otimiza-os.
         """
-        return self._optimize_subprogram(node, True)
+        return self.optimize_subprogram(node, True)
 
     def optimize_SUBROUTINE(self, node):
         """
@@ -109,7 +109,7 @@ class Optimizer:
         e verifica se a função é utilizada. Se n for remove a função para otimizar o programa, mas se ela
         for utilizada ele percorre as suas declarações e statements e otimiza-os.
         """
-        return self._optimize_subprogram(node, False)
+        return self.optimize_subprogram(node, False)
 
     # -------------------------------------------------------------------------
     # Otimização de statements e declarações
