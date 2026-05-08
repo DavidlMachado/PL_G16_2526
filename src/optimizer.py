@@ -7,6 +7,8 @@ class Optimizer:
         self.symbol_table = symbol_table
         # Lista de otimizações feitas
         self.optimizations = []
+        # Lista de Binops para redirecionar no optimize_node
+        self.BINOPS = {'+', '-', '*', '/', '**', 'LT', 'LE', 'EQ', 'NE', 'GT', 'GE', 'AND', 'OR'}
 
     def log(self, msg):
         # regista as otimizações feitas
@@ -36,6 +38,10 @@ class Optimizer:
         """Direciona cada nodo para o método correto."""
         if node is None:
             return None
+
+        # Operadores binários têm tags que não geram nomes de métodos válidos
+        if node[0] in self.BINOPS:
+            return self.optimize_BINOP(node)
 
         # Vai buscar o method name a partir da tag do nodo
         method_name = f"optimize_{node[0]}"
@@ -186,26 +192,16 @@ class Optimizer:
                 continue
 
             # Só otimiza os internos se o statement não for eliminado
-            optimized = self.optimize_statement(stmt)
+            optimized = self.optimize_node(stmt)
             if optimized is not None:
-                new_stmts.append(optimized)
+                if isinstance(optimized, list):  # IF(.TRUE.) ou IF(.FALSE.) devolveu lista
+                    new_stmts.extend(optimized)
+                else:
+                    new_stmts.append(optimized)
 
             i += 1
         
         return new_stmts
-
-    def optimize_statement(self, stmt):
-        """Otimiza um statement individual, descendo recursivamente em blocos."""
-        # Vai buscar o método para o statement
-        method_name = f"optimize_{stmt[0]}" 
-
-        optimizer = getattr(self, method_name, None)
-        
-        if optimizer is None:
-            return stmt  # se não há método específico, devolve o stmt sem alterações
-        
-        # otimiza o statement
-        return optimizer(stmt)
 
     def optimize_IF(self, node):
         """Recebe um nodo do tipo ('IF', condition, then_block, else_block, line) e otimiza os blocos internos."""
@@ -230,11 +226,12 @@ class Optimizer:
                     return None # Se não havia else, o if inteiro desaparece!
                 return self.optimize_statements(else_block)
 
-        # Otimiza recursivamente cada um dos blocos
+        # Otimiza recursivamente cada um dos blocos e a condição
+        new_condition = self.optimize_node(condition)
         new_then_block = self.optimize_statements(then_block)
         new_else_block = self.optimize_statements(else_block)
 
-        return ('IF', condition, new_then_block, new_else_block, line)
+        return ('IF', new_condition, new_then_block, new_else_block, line)
 
     def optimize_LABEL(self, node):
         """Recebe um nodo do tipo ('LABEL', num, instrução, line) e otimiza a instrução dentro do label."""
@@ -243,9 +240,144 @@ class Optimizer:
         line = node[-1]
 
         # Otimiza a instrução
-        new_instruction = self.optimize_statement(instruction)
+        new_instruction = self.optimize_node(instruction)
 
         return ('LABEL', label_num, new_instruction, line)
+
+    def optimize_DO(self, node):
+        """Recebe um nodo ('DO', label, var, start, end, step, line) e otimiza as expressões de controlo."""
+        label = node[1]
+        var   = node[2]
+        start = node[3]
+        end   = node[4]
+        step  = node[5]
+        line  = node[-1]
+
+        # Otimiza as expressões de início, fim e passo
+        new_start = self.optimize_node(start)
+        new_end   = self.optimize_node(end)
+        new_step  = self.optimize_node(step)
+
+        return ('DO', label, var, new_start, new_end, new_step, line)
+
+    def optimize_ASSIGN(self, node):
+        """Recebe um nodo ('ASSIGN', target, expression, line) e otimiza a expressão do lado direito."""
+        target     = node[1]
+        expression = node[2]
+        line       = node[-1]
+
+        # Otimiza a expressão do lado direito
+        new_expression = self.optimize_node(expression)
+
+        return ('ASSIGN', target, new_expression, line)
+
+    def optimize_PRINT(self, node):
+        """Recebe um nodo ('PRINT', expression_list) e otimiza cada expressão da lista."""
+        new_expression_list = [self.optimize_node(expr) for expr in node[1]]
+        return ('PRINT', new_expression_list)
+
+    def optimize_CALL_STMT(self, node):
+        """Recebe um nodo ('CALL_STMT', name, args_list) e otimiza os argumentos."""
+        name = node[1]
+        new_args_list = [self.optimize_node(arg) for arg in node[2]]
+        return ('CALL_STMT', name, new_args_list)
+
+    def optimize_CALL(self, node):
+        """Recebe um nodo ('CALL', name, args_list, line) e otimiza os argumentos."""
+        name = node[1]
+        line = node[-1]
+        new_args_list = [self.optimize_node(arg) for arg in node[2]]
+        return ('CALL', name, new_args_list, line)
+
+    def optimize_ARRAY_ACCESS(self, node):
+        """Recebe um nodo ('ARRAY_ACCESS', name, index_expr, line) e otimiza o índice."""
+        name = node[1]
+        line = node[-1]
+        new_index = self.optimize_node(node[2])
+        return ('ARRAY_ACCESS', name, new_index, line)
+
+    # -------------------------------------------------------------------------
+    # Otimização de operações matemáticas
+    # -------------------------------------------------------------------------
+
+    def optimize_BINOP(self, node):
+        """
+        Recebe um nodo do tipo (op, left, right, line) e verifica se ambos os operandos
+        são constantes. Se forem, calcula o resultado em tempo de compilação (constant folding)
+        e substitui o nodo por uma constante com o resultado. Caso contrário, devolve o nodo
+        sem alterações.
+        """
+        # Dicionário que mapeia as operações
+        ops = {
+            '+': lambda a, b: a + b,
+            '-': lambda a, b: a - b,
+            '*': lambda a, b: a * b,
+            '/': lambda a, b: a / b,
+            '**': lambda a, b: a ** b,
+            'AND': lambda a, b: a and b,
+            'OR':  lambda a, b: a or b,
+            'LT': lambda a, b: a < b,
+            'LE': lambda a, b: a <= b,
+            'EQ': lambda a, b: a == b,
+            'NE': lambda a, b: a != b,
+            'GT': lambda a, b: a > b,
+            'GE': lambda a, b: a >= b,
+        }
+
+        op = node[0]
+        left = node[1]
+        right = node[2]
+        line = node[-1]
+
+        # Simplifica cada lado primeiro
+        optimized_left = self.optimize_node(left)
+        optimized_right = self.optimize_node(right)
+        
+        try:
+            # Regra especial para a divisão de dois inteiros no Fortran
+            if op == '/' and optimized_left[1] == 'INT' and optimized_right[1] == 'INT':
+                res = optimized_left[2] // optimized_right[2] # Divisão inteira do Python
+            else:
+                res = ops[op](optimized_left[2], optimized_right[2])
+
+            res_type = 'REAL' if isinstance(res, float) else ('BOOL' if isinstance(res, bool) else 'INT')
+            self.log(f"Constant folding: {optimized_left[2]} {op} {optimized_right[2]} → {res} (linha {line})")
+            return ('CONST', res_type, res, line)
+            
+        except ZeroDivisionError:
+            # Se houver divisão por zero em tempo de compilação, 
+            # ignoramos a otimização e deixamos o erro estoirar no Runtime 
+            self.log(f"Aviso: Divisão por zero detetada na linha {line}. Constant folding abortado.")
+            return (op, optimized_left, optimized_right, line)
+
+        # Se não for possível simplificar ou a operação não estiver no dicionario, 
+        # devolve o nodo com os filhos já otimizados
+        return (op, optimized_left, optimized_right, line)
+
+    def optimize_unary(self, node, result_type, operation):
+        """Lógica comum entre UMINUS e NOT."""
+        line = node[-1]
+        operand = self.optimize_node(node[1])
+
+        # Se é uma constante simplifica a expressão
+        if operand[0] == 'CONST':
+            # executa a operação no operando
+            res = operation(operand[2])
+            # regista o tipo final
+            final_type = result_type if result_type else operand[1]
+            self.log(f"Constant folding: {node[0]} {operand[2]} → {res} (linha {line})")
+            return ('CONST', final_type, res, line)
+
+        # Se não retorna o operando otimizado
+        return (node[0], operand, line)
+
+    def optimize_UMINUS(self, node):
+        """Recebe um nodo ('UMINUS', expression, line) e nega o valor se for uma constante numérica."""
+        return self.optimize_unary(node, None, lambda x: -x)
+
+    def optimize_NOT(self, node):
+        """Recebe um nodo ('NOT', expression, line) e inverte o valor se for uma constante booleana."""
+        return self.optimize_unary(node, 'BOOL', lambda x: not x)
 
     # -------------------------------------------------------------------------
     # Relatório final

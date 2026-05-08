@@ -48,7 +48,7 @@ def p_optional_program_statement(p):
     """
     p[0] = p[2] if len(p) > 2 else None
 
-# --- Subprogramas (valorização) ---
+# --- Subprogramas  ---
 
 def p_function_subprogram(p):
     """
@@ -58,10 +58,10 @@ def p_function_subprogram(p):
     if len(p) == 10:
         # Com tipo de retorno explícito: INTEGER FUNCTION CONVRT(N, B)
         line = p.lineno(2)
-        p[0] = ('FUNCTION', p[3], p[1], p[4], p[7], p[8], line)
+        p[0] = ('FUNCTION', p[3], p[1], p[5], p[7], p[8], line)
     else:
         line = p.lineno(1)
-        p[0] = ('FUNCTION', p[2], None, p[3], p[6], p[7], line)
+        p[0] = ('FUNCTION', p[2], None, p[4], p[6], p[7], line)
 
 def p_subroutine_subprogram(p):
     """
@@ -70,7 +70,7 @@ def p_subroutine_subprogram(p):
     """
     line = p.lineno(1)
     if len(p) == 9:
-        p[0] = ('SUBROUTINE', p[2], p[4], p[6], p[7], line)
+        p[0] = ('SUBROUTINE', p[2], p[5], p[6], p[7], line)
     else:
         p[0] = ('SUBROUTINE', p[2], [], p[5], p[6], line)
 

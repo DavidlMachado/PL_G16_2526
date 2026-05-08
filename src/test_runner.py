@@ -240,6 +240,21 @@ TESTS = [
         'expect_sem_ok':   None,
     },
 
+    # ── Erros Sintáticos ───────────────────────────────────────────────────────────
+
+    {
+        'name': 'Erro Sintático - Declaração de variável após instrução executável',
+        'code': """\
+ PROGRAM TESTE
+ X = 1
+ INTEGER X
+ END
+""",
+        'expect_lex_ok':   True,
+        'expect_parse_ok': False,  # O Parser tem de barrar isto!
+        'expect_sem_ok':   None,   # Nem chega à Semântica
+    },
+
     # ── Erros semânticos ──────────────────────────────────────────────────────
 
     {
@@ -349,6 +364,25 @@ TESTS = [
         'expect_parse_ok': True,
         'expect_sem_ok':   True,
     },
+
+{
+    'name': 'Erro Semântico - Número errado de argumentos',
+    'code': """\
+ PROGRAM TESTE
+ INTEGER R, FOO
+ R = FOO(1, 2)
+ PRINT *, R
+ END
+ INTEGER FUNCTION FOO(X)
+ INTEGER X
+ FOO = X + 1
+ RETURN
+ END
+""",
+    'expect_lex_ok':   True,
+    'expect_parse_ok': True,
+    'expect_sem_ok':   False,  # FOO espera 1 argumento, recebeu 2
+},
 
     # ── Testes do Optimizer ───────────────────────────────────────────────────
 
@@ -647,6 +681,85 @@ TESTS = [
         'expect_parse_ok': True,
         'expect_sem_ok':   False,
     },
+
+    # --- Constant Folding ---
+
+    {
+    'name': 'Optimizer - Constant Folding simples',
+    'code': """\
+ PROGRAM TESTE
+ INTEGER X
+ X = 5 + 3
+ END
+""",
+    'expect_lex_ok':   True,
+    'expect_parse_ok': True,
+    'expect_sem_ok':   True,
+    'expect_opt_ok':   True,
+    'check_opt': lambda opt_ast: (
+        ast_get_stmts(ast_find_program(opt_ast))[0][2] == ('CONST', 'INT', 8, 3),
+        "5 + 3 devia ter sido simplificado para 8"
+    ),
+},
+{
+    'name': 'Optimizer - Constant Folding encadeado',
+    'code': """\
+ PROGRAM TESTE
+ INTEGER X
+ X = 2 * (4 + 1)
+ END
+""",
+    'expect_lex_ok':   True,
+    'expect_parse_ok': True,
+    'expect_sem_ok':   True,
+    'expect_opt_ok':   True,
+    'check_opt': lambda opt_ast: (
+        ast_get_stmts(ast_find_program(opt_ast))[0][2] == ('CONST', 'INT', 10, 3),
+        "2 * (4 + 1) devia ter sido simplificado para 10"
+    ),
+},
+{
+    'name': 'Optimizer - Constant Folding com IF (.TRUE.)',
+    'code': """\
+ PROGRAM TESTE
+ INTEGER X
+ X = 1
+ IF (.TRUE.) THEN
+ X = 2
+ ELSE
+ X = 3
+ ENDIF
+ END
+""",
+    'expect_lex_ok':   True,
+    'expect_parse_ok': True,
+    'expect_sem_ok':   True,
+    'expect_opt_ok':   True,
+    'check_opt': lambda opt_ast: (
+        ast_count_stmts(ast_get_stmts(ast_find_program(opt_ast)), 'IF') == 0,
+        "IF (.TRUE.) devia ter sido eliminado"
+    ),
+},
+{
+    'name': 'Optimizer - Constant Folding com IF (.FALSE.)',
+    'code': """\
+ PROGRAM TESTE
+ INTEGER X
+ X = 1
+ IF (.FALSE.) THEN
+ X = 2
+ ENDIF
+ END
+""",
+    'expect_lex_ok':   True,
+    'expect_parse_ok': True,
+    'expect_sem_ok':   True,
+    'expect_opt_ok':   True,
+    'check_opt': lambda opt_ast: (
+        ast_count_stmts(ast_get_stmts(ast_find_program(opt_ast)), 'IF') == 0,
+        "IF (.FALSE.) devia ter sido eliminado"
+    ),
+},
 ]
 
 # ─── Funções auxiliares ───────────────────────────────────────────────────────
@@ -706,7 +819,7 @@ def run_test(test):
     sem_ok = False
     if ast is not None:
         try:
-            from semanticanalyzer import SemanticAnalyzer
+            from semantic import SemanticAnalyzer
             analyzer = SemanticAnalyzer()
             sem_ok = analyzer.analyze(ast)
         except Exception as e:

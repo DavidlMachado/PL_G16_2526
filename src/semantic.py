@@ -17,7 +17,7 @@ class SymbolTable:
     def leave_scope(self):
         self.current_scope = 'global'
 
-    def declare(self, name, type_val, is_array=False, size=None, line=None):
+    def declare(self, name, type_val, is_array=False, size=None, num_args=None, line=None):
         # Vai buscar o scope
         scope = self.scopes[self.current_scope]
         
@@ -31,6 +31,7 @@ class SymbolTable:
             'type': type_val, 
             'is_array': is_array, 
             'size': size,         # Vai ser um número para Arrays, e None para Scalars
+            'num_args': num_args,
             'used': False,
             'line': line
         }
@@ -55,6 +56,7 @@ class SymbolTable:
         msg = Errors.get('sem', line, 'VAR_N_EXISTE', nome=name)
         raise SemanticError(msg)
 
+
 class SemanticAnalyzer:
     def __init__(self):
         # Variável que guarda os scopes
@@ -63,6 +65,8 @@ class SemanticAnalyzer:
         self.errors = []
         # Lista de avisos
         self.warnings = []
+        # Lista de chamadas pendentes de funções
+        self.pending_calls = []
 
         self.declared_labels = set()   # Ex: todos os números antes do CONTINUE
         self.do_labels = set()      # labels pedidos por DO
@@ -75,24 +79,24 @@ class SemanticAnalyzer:
     def register_builtins(self):
         """Regista as funções intrínsecas do Fortran 77 na tabela de símbolos global."""
         builtins = {
-            'MOD':   'INTEGER',   # MOD(A, B) -> resto da divisão
-            'ABS':   'REAL',      # ABS(X) -> valor absoluto
-            'SQRT':  'REAL',      # SQRT(X) -> raiz quadrada
-            'INT':   'INTEGER',   # INT(X) -> conversão para inteiro
-            'REAL':  'REAL',      # REAL(X) -> conversão para real
-            'MAX':   'REAL',      # MAX(A, B, ...) -> máximo
-            'MIN':   'REAL',      # MIN(A, B, ...) -> mínimo
-            'FLOAT': 'REAL',      # FLOAT(X) -> conversão para real
-            'IABS':  'INTEGER',   # IABS(X) -> valor absoluto inteiro
-            'IFIX':  'INTEGER',   # IFIX(X) -> conversão para inteiro
+            'MOD':   ('INTEGER', 2),
+            'ABS':   ('REAL', 1),
+            'SQRT':  ('REAL', 1),
+            'INT':   ('INTEGER', 1),
+            'REAL':  ('REAL', 1),
+            'FLOAT': ('REAL', 1),
+            'IABS':  ('INTEGER', 1),
+            'IFIX':  ('INTEGER', 1),
+            'MAX':   ('REAL', 'VARIADIC'), # Aceita >= 2
+            'MIN':   ('REAL', 'VARIADIC'),
         }
 
-        for name, return_type in builtins.items():
-            # Registamos os built-ins como usados para no final nao dar warning de inutilização
+        for name, (ret_type, num_args) in builtins.items():
             self.symbol_table.scopes['global'][name] = {
-                'type': return_type,
+                'type': ret_type,
                 'is_array': False,
                 'size': None,
+                'num_args': num_args, 
                 'used': True, 
                 'line': None
             }
@@ -431,12 +435,22 @@ class SemanticAnalyzer:
 
             # Caso seja uma função
             else:
-                # Validamos que os argumentos passados para a função são válidos
+                # Validamos os tipos dos argumentos e contamos o número
+                num_args = 0
                 for arg in args_list:
                     self.visit(arg)
+                    num_args += 1
                 
-                # Como as funções também têm um tipo associado (ex: INTEGER FUNCTION OLA()), devolvemos o tipo que estiver na tabela
-                return info.get('type')
+                # Guardamos na nossa lista de chamadas pendentes
+                self.pending_calls.append({
+                    'name': name,
+                    'num_args': num_args,
+                    'line': line
+                })
+                
+                # Devolvemos 'UNKNOWN' para que expressões como `10 + FOO(1)` 
+                # não rebatem imediatamente na análise desta linha.
+                return 'UNKNOWN'
 
         except SemanticError:
             # Se a Tabela de Símbolos não conhece o nome, lança erro.
@@ -547,10 +561,13 @@ class SemanticAnalyzer:
         """
         name = node[1]
         return_type = node[2]
+        params = node[3]
         line = node[-1]
 
+        num_args = len(params)
+
         try:
-            self.symbol_table.declare(name, return_type, line=line)
+            self.symbol_table.declare(name, return_type, num_args=num_args, line=line)
 
         except SemanticError:
             # Em Fortran 77 é válido pré-declarar o tipo da função no programa chamador
@@ -560,6 +577,9 @@ class SemanticAnalyzer:
                 msg = Errors.get('sem', line, 'FUNC_DUPLICADA', nome=name)
                 self.add_error(msg)
                 return
+
+            if existing:
+                existing['num_args'] = num_args
 
         # Regista e entra no scope
         self.symbol_table.enter_scope(name)
@@ -592,11 +612,14 @@ class SemanticAnalyzer:
         e visita todas as declarações e instruções.
         """
         name = node[1]
+        params = node[2]
         line = node[-1]
+
+        num_args = len(params)
 
         # Regista a subroutine (ela não tem tipo de retorno)
         try:
-            self.symbol_table.declare(name, None, line=line)
+            self.symbol_table.declare(name, None, num_args=num_args, line=line)
         except SemanticError:
             msg = Errors.get('sem', line, 'FUNC_DUPLICADA', nome=name)
             self.add_error(msg)
@@ -654,6 +677,40 @@ class SemanticAnalyzer:
                         msg = Errors.get('w', info['line'], 'VAR_N_USADA', nome=name)
                         self.add_warning(msg)
 
+    def check_pending_calls(self): 
+        """
+        Corre no final da análise para validar as funções que 
+        foram chamadas antes de serem declaradas.
+        """
+        """Valida se as funções pendentes existem e têm o nº certo de argumentos."""
+        for call in self.pending_calls:
+            name = call['name']
+            num_args = call['num_args']
+            line = call['line']
+
+            info = self.symbol_table.scopes['global'].get(name)
+
+            if not info:
+                msg = Errors.get('sem', line, 'FUNC_N_DECLARADA', nome=name)
+                self.add_error(msg)
+                continue
+            
+            expected_num = info.get('num_args')
+
+            # Para MAX e MIN
+            if expected_num  == 'VARIADIC':
+                if num_args < 2:
+                    msg = Errors.get('sem', line, 'NUM_ARGS', nome=name, esperado=2, recebido=num_args)
+                    self.add_error(msg)
+                    
+            # Para as funções normais 
+            elif expected_num  is not None:
+                if num_args != expected_num :
+                    msg = Errors.get('sem', line, 'NUM_ARGS', nome=name, esperado=expected_num, recebido=num_args)
+                    self.add_error(msg)
+            
+            info['used'] = True
+
     # -------------------------------------------------------------------------
     # Método principal 
     # -------------------------------------------------------------------------
@@ -664,6 +721,7 @@ class SemanticAnalyzer:
             self.visit(node)
 
         self.check_unresolved_labels()
+        self.check_pending_calls()
         self.check_unused_variables()
 
         return len(self.errors) == 0
