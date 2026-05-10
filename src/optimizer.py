@@ -209,10 +209,13 @@ class Optimizer:
         then_block = node[2]
         else_block = node[3]
         line = node[-1]
+        
+        # Otimiza primeiro a condição
+        new_condition = self.optimize_node(condition)
 
         # Verifica se a condição é uma constante booleana estática
-        if condition[0] == 'CONST' and condition[1] == 'BOOL':
-            is_true = condition[2]
+        if new_condition[0] == 'CONST' and new_condition[1] == 'BOOL':
+            is_true = new_condition[2]
             
             if is_true:
                 self.log(f"IF (.TRUE.) detetado na linha {line}. Ramo ELSE removido.")
@@ -226,8 +229,7 @@ class Optimizer:
                     return None # Se não havia else, o if inteiro desaparece!
                 return self.optimize_statements(else_block)
 
-        # Otimiza recursivamente cada um dos blocos e a condição
-        new_condition = self.optimize_node(condition)
+        # Otimiza recursivamente cada um dos blocos 
         new_then_block = self.optimize_statements(then_block)
         new_else_block = self.optimize_statements(else_block)
 
@@ -333,22 +335,21 @@ class Optimizer:
         optimized_left = self.optimize_node(left)
         optimized_right = self.optimize_node(right)
         
-        try:
-            # Regra especial para a divisão de dois inteiros no Fortran
-            if op == '/' and optimized_left[1] == 'INT' and optimized_right[1] == 'INT':
-                res = optimized_left[2] // optimized_right[2] # Divisão inteira do Python
-            else:
-                res = ops[op](optimized_left[2], optimized_right[2])
+        # Só aplica constant folding se ambos forem constantes e o op estiver no dicionário
+        if optimized_left[0] == 'CONST' and optimized_right[0] == 'CONST' and op in ops:
+            try:
+                # Regra especial para a divisão de dois inteiros no Fortran
+                if op == '/' and optimized_left[1] == 'INT' and optimized_right[1] == 'INT':
+                    res = optimized_left[2] // optimized_right[2]
+                else:
+                    res = ops[op](optimized_left[2], optimized_right[2])
 
-            res_type = 'REAL' if isinstance(res, float) else ('BOOL' if isinstance(res, bool) else 'INT')
-            self.log(f"Constant folding: {optimized_left[2]} {op} {optimized_right[2]} → {res} (linha {line})")
-            return ('CONST', res_type, res, line)
-            
-        except ZeroDivisionError:
-            # Se houver divisão por zero em tempo de compilação, 
-            # ignoramos a otimização e deixamos o erro estoirar no Runtime 
-            self.log(f"Aviso: Divisão por zero detetada na linha {line}. Constant folding abortado.")
-            return (op, optimized_left, optimized_right, line)
+                res_type = 'REAL' if isinstance(res, float) else ('BOOL' if isinstance(res, bool) else 'INT')
+                self.log(f"Constant folding: {optimized_left[2]} {op} {optimized_right[2]} → {res} (linha {line})")
+                return ('CONST', res_type, res, line)
+
+            except ZeroDivisionError:
+                self.log(f"Aviso: Divisão por zero detetada na linha {line}. Constant folding abortado.")
 
         # Se não for possível simplificar ou a operação não estiver no dicionario, 
         # devolve o nodo com os filhos já otimizados

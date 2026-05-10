@@ -350,6 +350,34 @@ class SemanticAnalyzer:
 
         return None
 
+    def visit_array_index(self, name, args_list, info, line):
+        """Lógica comum de validação de acesso a array."""
+        # Confirma o número de argumentos
+        if len(args_list) != 1:
+            msg = Errors.get('sem', line, 'NUM_ARGS', nome=name, esperado=1, recebido=len(args_list))
+            self.add_error(msg)
+            return 'UNKNOWN'
+
+        index_expr = args_list[0]
+        index_type = self.visit(index_expr)
+
+        # Verifica o tipo do indíce
+        if index_type not in ['UNKNOWN', 'INTEGER']:
+            msg = Errors.get('sem', line, 'INDICE_TIPO', nome=name, recebido=index_type)
+            self.add_error(msg)
+            return 'UNKNOWN'
+
+        # Confirma os bounds do array
+        if index_expr[0] == 'CONST' and index_expr[1] == 'INT':
+            index_val = index_expr[2]
+            array_size = info.get('size')
+            if index_val < 1 or index_val > array_size:
+                msg = Errors.get('sem', line, 'OUT_OF_BOUNDS', nome=name, tamanho=array_size, recebido=index_val)
+                self.add_error(msg)
+                return 'UNKNOWN'
+
+        return info.get('type')
+
     def visit_ARRAY_ACCESS(self, node):
         """ 
         Recebe um nodo ('ARRAY_ACCESS', var_name, index_expr, line)e garante que X(5) à esquerda do '=' é válido.
@@ -361,31 +389,13 @@ class SemanticAnalyzer:
         try:
             var_info = self.symbol_table.lookup(var_name, line)
 
+            # Verifica se é um array
             if not var_info.get('is_array'):
                 msg = Errors.get('sem', line, 'NAO_E_ARRAY', nome=var_name)
                 self.add_error(msg)
                 return 'UNKNOWN'
 
-            index_type = self.visit(index_expr)
-            
-            # Se não houver já um erro no tipo do index ou se ele nao for integer adicionamos um erro
-            # Não mandamos outro erro caso já exista um pois assim um utilizador não tem erros duplicados
-            if index_type not in ['UNKNOWN', 'INTEGER']:
-                msg = Errors.get('sem', line, 'INDICE_TIPO', nome=var_name, recebido=index_type)
-                self.add_error(msg)
-                return 'UNKNOWN'
-
-            # agora verificamos se o indice não ultrapassa os limites do array
-            if index_expr[0] == 'CONST' and index_expr[1] == 'INT':
-                index_val = index_expr[2]
-                array_size = var_info.get('size')
-                
-                if index_val < 1 or index_val > array_size:
-                    msg = Errors.get('sem', line, 'OUT_OF_BOUNDS', nome=var_name, tamanho=array_size, recebido=index_val)
-                    self.add_error(msg)
-                    return 'UNKNOWN'
-
-            return var_info.get('type')
+            return self.visit_array_index(var_name, [index_expr], var_info, line)
 
         except SemanticError as e:
             self.add_error(str(e))
@@ -406,59 +416,50 @@ class SemanticAnalyzer:
 
             # Caso seja um array 
             if info.get('is_array'):
-                # O compilador só suporta arrays 1D logo só pode ter um argumento nos parêntesis
-                if len(args_list) != 1:
-                    msg = Errors.get('sem', line, 'NUM_ARGS', nome=name, esperado=1, recebido=len(args_list))
-                    self.add_error(msg)
-                    return 'UNKNOWN'
-
-                index_expr = args_list[0]
-                index_type = self.visit(index_expr)
-
-                # Validamos se o índice é um número inteiro
-                if index_type not in ['UNKNOWN', 'INTEGER']:
-                    msg = Errors.get('sem', line, 'INDICE_TIPO', nome=name, recebido=index_type)
-                    self.add_error(msg)
-                    return 'UNKNOWN'
-
-                # Verifica os limites do array (em tempo de compilação)
-                if index_expr[0] == 'CONST' and index_expr[1] == 'INT':
-                    index_val = index_expr[2]
-                    array_size = info.get('size')
-                    
-                    if index_val < 1 or index_val > array_size:
-                        msg = Errors.get('sem', line, 'OUT_OF_BOUNDS', nome=name, tamanho=array_size, recebido=index_val)
-                        self.add_error(msg)
-                        return 'UNKNOWN'
-
-                return info.get('type')
+                return self.visit_array_index(name, args_list, info, line)
 
             # Caso seja uma função
             else:
-                # Validamos os tipos dos argumentos e contamos o número
-                num_args = 0
+                # Caso seja uma função já conhecida
                 for arg in args_list:
                     self.visit(arg)
-                    num_args += 1
-                
-                # Guardamos na nossa lista de chamadas pendentes
-                self.pending_calls.append({
-                    'name': name,
-                    'num_args': num_args,
-                    'line': line
-                })
-                
-                # Devolvemos 'UNKNOWN' para que expressões como `10 + FOO(1)` 
-                # não rebatem imediatamente na análise desta linha.
-                return 'UNKNOWN'
+
+                expected_num = info.get('num_args')
+
+                # Se num_args é None, pode ser uma pré-declaração de tipo 
+                # Guardamos nos pending_calls para verificar no final quando a função for declarada
+                if expected_num is None:
+                    self.pending_calls.append({
+                        'name': name,
+                        'num_args': len(args_list),
+                        'line': line
+                    })
+
+                elif expected_num == 'VARIADIC':
+                    if len(args_list) < 2:
+                        msg = Errors.get('sem', line, 'NUM_ARGS', nome=name, esperado=2, recebido=len(args_list))
+                        self.add_error(msg)
+                        
+                else:
+                    if len(args_list) != expected_num:
+                        msg = Errors.get('sem', line, 'NUM_ARGS', nome=name, esperado=expected_num, recebido=len(args_list))
+                        self.add_error(msg)
+
+            return info.get('type')
 
         except SemanticError:
-            # Se a Tabela de Símbolos não conhece o nome, lança erro.
-            # Como o nó se chama CALL e usa parênteses, assumimos que o 
-            # utilizador estava a tentar chamar uma Função que não existe!
-            msg = Errors.get('sem', line, 'FUNCAO_N_DECLARADA', nome=name)
-            self.add_error(msg)
-            return 'UNKNOWN'
+            # A função pode ainda não ter sido declarada (está à frente no ficheiro)
+            # Guardamos para verificar no final em vez de reportar erro imediatamente
+            for arg in args_list:
+                self.visit(arg)
+
+            self.pending_calls.append({
+                'name': name,
+                'num_args': len(args_list),
+                'line': line
+            })
+
+            return None  # tipo desconhecido por agora
 
     def visit_IF(self, node):
         """
@@ -679,10 +680,9 @@ class SemanticAnalyzer:
 
     def check_pending_calls(self): 
         """
-        Corre no final da análise para validar as funções que 
+        Corre no final da análise para validar as funções que
         foram chamadas antes de serem declaradas.
         """
-        """Valida se as funções pendentes existem e têm o nº certo de argumentos."""
         for call in self.pending_calls:
             name = call['name']
             num_args = call['num_args']
@@ -694,21 +694,12 @@ class SemanticAnalyzer:
                 msg = Errors.get('sem', line, 'FUNC_N_DECLARADA', nome=name)
                 self.add_error(msg)
                 continue
-            
-            expected_num = info.get('num_args')
 
-            # Para MAX e MIN
-            if expected_num  == 'VARIADIC':
-                if num_args < 2:
-                    msg = Errors.get('sem', line, 'NUM_ARGS', nome=name, esperado=2, recebido=num_args)
-                    self.add_error(msg)
-                    
-            # Para as funções normais 
-            elif expected_num  is not None:
-                if num_args != expected_num :
-                    msg = Errors.get('sem', line, 'NUM_ARGS', nome=name, esperado=expected_num, recebido=num_args)
-                    self.add_error(msg)
-            
+            expected_num = info.get('num_args')
+            if expected_num is not None and num_args != expected_num:
+                msg = Errors.get('sem', line, 'NUM_ARGS', nome=name, esperado=expected_num, recebido=num_args)
+                self.add_error(msg)
+
             info['used'] = True
 
     # -------------------------------------------------------------------------
