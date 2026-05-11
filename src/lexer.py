@@ -1,5 +1,5 @@
 import ply.lex as lex
-from errors import Errors
+from utils.errors import Errors
 
 literals = ['=', '+', '-', '*', '/', '(', ')', ',', ':']
 

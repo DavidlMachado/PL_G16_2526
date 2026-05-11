@@ -1,0 +1,54 @@
+start
+jump progPRIMO
+progPRIMO:
+pushs "Introduza um numero inteiro positivo:"
+writes
+read
+atoi
+storeg 10
+pushi 1
+storeg 6
+pushi 2
+storeg 2
+L201:
+pushg 2
+pushg 10
+pushi 2
+div
+infeq
+pushg 6
+and
+jz ifelse2
+pushg 10
+pushg 2
+mod
+pushi 0
+equal
+jz ifelse4
+pushi 0
+storeg 6
+jump ifend5
+ifelse4:
+ifend5:
+pushg 2
+pushi 1
+add
+storeg 2
+jump L201
+jump ifend3
+ifelse2:
+ifend3:
+pushg 6
+jz ifelse6
+pushg 10
+writei
+pushs " e um numero primo"
+writes
+jump ifend7
+ifelse6:
+pushg 10
+writei
+pushs " nao e um numero primo"
+writes
+ifend7:
+stop

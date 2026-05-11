@@ -1,4 +1,4 @@
-from errors import Errors
+from utils.errors import Errors
 
 class SemanticError(Exception):
     pass

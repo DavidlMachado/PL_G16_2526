@@ -1,10 +1,11 @@
 class Optimizer:
-    def __init__(self, symbol_table):
+    def __init__(self, symbol_table, used_labels):
         """
         Recebe a symbol_table já preenchida pelo SemanticAnalyzer.
         Assim sabemos quais variáveis e funções foram marcadas como 'used'.
         """
         self.symbol_table = symbol_table
+        self.used_labels = used_labels
         # Lista de otimizações feitas
         self.optimizations = []
         # Lista de Binops para redirecionar no optimize_node
@@ -241,10 +242,15 @@ class Optimizer:
         instruction = node[2]
         line = node[-1]
 
-        # Otimiza a instrução
+        # Otimiza a instrução interna primeiro
         new_instruction = self.optimize_node(instruction)
 
-        return ('LABEL', label_num, new_instruction, line)
+        # Verifica se o label é alvo de algum GOTO
+        if label_num in self.used_labels:
+            return ('LABEL', label_num, new_instruction, line)
+        else:
+            self.log(f"Label '{label_num}' removido (nunca é alvo de um GOTO).")
+            return new_instruction
 
     def optimize_DO(self, node):
         """Recebe um nodo ('DO', label, var, start, end, step, line) e otimiza as expressões de controlo."""

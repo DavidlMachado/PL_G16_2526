@@ -1,6 +1,6 @@
 import ply.yacc as yacc
 from lexer import tokens, lexer
-from errors import Errors
+from utils.errors import Errors
 
 precedence = (
     ('left', 'OR'),

@@ -1,0 +1,44 @@
+start
+jump progSOMAARR
+progSOMAARR:
+pushi 0
+storeg 15
+pushs "Introduza 5 numeros inteiros:"
+writes
+pushi 1
+storeg 2
+dostart2:
+pushg 2
+pushi 5
+infeq
+jz doend3
+pushgp
+pushi 9
+pushg 2
+pushi 1
+sub
+add
+read
+atoi
+storen
+pushg 15
+pushgp
+pushi 9
+pushg 2
+pushi 1
+sub
+add
+loadn
+add
+storeg 15
+pushg 2
+pushi 1
+add
+storeg 2
+jump dostart2
+doend3:
+pushs "A soma dos numeros e: "
+writes
+pushg 15
+writei
+stop

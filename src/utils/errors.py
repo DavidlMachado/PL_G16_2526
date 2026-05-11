@@ -1,4 +1,4 @@
-from colors import Colors
+from .colors import Colors
 
 class Errors:
     FLAG_WARNINGS = True

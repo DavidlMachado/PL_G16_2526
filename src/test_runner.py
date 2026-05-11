@@ -123,6 +123,11 @@ TESTS = [
         'expect_lex_ok':   True,
         'expect_parse_ok': True,
         'expect_sem_ok':   True,
+        'expect_codegen_ok': True,
+        'check_codegen': lambda vm_code: (
+            'pushs "Ola, Mundo!"' in vm_code and 'writes' in vm_code,
+            "Código para PRINT devia incluir pushs e writes"
+        )
     },
 
     {
@@ -142,6 +147,11 @@ TESTS = [
         'expect_lex_ok':   True,
         'expect_parse_ok': True,
         'expect_sem_ok':   True,
+        'expect_codegen_ok': True,
+        'check_codegen': lambda vm_code: (
+            any('do_start' in line for line in vm_code) and any('do_end' in line for line in vm_code),
+            "Ciclo DO devia gerar labels do_start e do_end"
+        )
     },
 
     {
@@ -171,6 +181,11 @@ TESTS = [
         'expect_lex_ok':   True,
         'expect_parse_ok': True,
         'expect_sem_ok':   True,
+        'expect_codegen_ok': True,
+        'check_codegen': lambda vm_code: (
+            any('ifelse' in line for line in vm_code) and any('ifend' in line for line in vm_code),
+            "Instrução IF devia gerar labels if_else e if_end"
+        )
     },
 
     {
@@ -191,6 +206,11 @@ TESTS = [
         'expect_lex_ok':   True,
         'expect_parse_ok': True,
         'expect_sem_ok':   True,
+        'expect_codegen_ok': True,
+        'check_codegen': lambda vm_code: (
+            'store' in vm_code and 'load' in vm_code,
+            "Acesso a array devia usar store/load"
+        )
     },
 
     {
@@ -224,6 +244,11 @@ TESTS = [
         'expect_lex_ok':   True,
         'expect_parse_ok': True,
         'expect_sem_ok':   True,
+        'expect_codegen_ok': True,
+        'check_codegen': lambda vm_code: (
+            'call f_CONVRT 2' in vm_code and 'f_CONVRT:' in vm_code,
+            "Chamada de função devia gerar 'call' e a definição da função 'f_CONVRT:'"
+        )
     },
 
     # ── Erro léxico ───────────────────────────────────────────────────────────
@@ -759,7 +784,33 @@ TESTS = [
         ast_count_stmts(ast_get_stmts(ast_find_program(opt_ast)), 'IF') == 0,
         "IF (.FALSE.) devia ter sido eliminado"
     ),
+    'expect_codegen_ok': True,
+    'check_codegen': lambda vm_code: (
+        not any('if_' in line for line in vm_code),
+        "CodeGen não devia gerar labels de IF para um IF(.FALSE.) otimizado"
+    )
 },
+
+    # ── Testes do CodeGen ───────────────────────────────────────────────────
+
+    {
+        'name': 'CodeGen - Atribuição a variável e array',
+        'code': """\
+ PROGRAM TESTE
+ INTEGER X, ARR(5)
+ X = 10
+ ARR(1) = 20
+ END
+""",
+        'expect_lex_ok':   True,
+        'expect_parse_ok': True,
+        'expect_sem_ok':   True,
+        'expect_codegen_ok': True,
+        'check_codegen': lambda vm_code: (
+            any('storeg' in line for line in vm_code) and any('store' in line for line in vm_code),
+            "Atribuição a variável devia usar 'storeg' e a array 'store'"
+        )
+    },
 ]
 
 # ─── Funções auxiliares ───────────────────────────────────────────────────────
@@ -779,7 +830,7 @@ def print_result(label, ok, expected):
     print(f"  {status} {label}")
 
 def run_test(test):
-    """Corre um teste e devolve (lex_ok, parse_ok, sem_ok, opt_ok, opt_ast)."""
+    """Corre um teste e devolve (lex_ok, parse_ok, sem_ok, opt_ok, opt_ast, codegen_ok, vm_code)."""
 
     code = test['code']
 
@@ -804,12 +855,16 @@ def run_test(test):
     ast = None
     parse_ok = False
     try:
-        from parser import parser as fortran_parser
+        from parser import parser as fortran_parser, SintaxError
         from lexer import lexer as fortran_lexer2
         fortran_lexer2.lineno = 1
         fortran_lexer2.line_start = 0
         ast = fortran_parser.parse(code, lexer=fortran_lexer2)
         parse_ok = ast is not None
+    except SintaxError as e:
+        # A exceção já tem a mensagem de erro formatada.
+        print(f"  {e}")
+        parse_ok = False
     except Exception as e:
         print(f"  {RED}[ERRO SINTÁTICO INTERNO]: {e}{RESET}")
         traceback.print_exc()
@@ -832,14 +887,28 @@ def run_test(test):
     if sem_ok and ast is not None and analyzer is not None:
         try:
             from optimizer import Optimizer
-            optimizer = Optimizer(analyzer.symbol_table)
+            optimizer = Optimizer(analyzer.symbol_table, analyzer.goto_labels.union(analyzer.do_labels))
             opt_ast = optimizer.optimize(ast)
             opt_ok = opt_ast is not None
         except Exception as e:
             print(f"  {RED}[ERRO OPTIMIZER INTERNO]: {e}{RESET}")
             traceback.print_exc()
 
-    return lex_ok, parse_ok, sem_ok, opt_ok, opt_ast
+    # ── Fase 5: CodeGen ───────────────────────────────────────────────────────
+    vm_code = None
+    codegen_ok = False
+    if sem_ok and opt_ast is not None and analyzer is not None:
+        try:
+            from codegen import CodeGenerator
+            generator = CodeGenerator(analyzer.symbol_table, analyzer.goto_labels)
+            vm_code = generator.generate(opt_ast)
+            codegen_ok = vm_code is not None and len(vm_code) > 0
+        except Exception as e:
+            print(f"  {RED}[ERRO CODEGEN INTERNO]: {e}{RESET}")
+            traceback.print_exc()
+
+
+    return lex_ok, parse_ok, sem_ok, opt_ok, opt_ast, codegen_ok, vm_code
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
@@ -859,7 +928,7 @@ def main():
         print()
 
         try:
-            lex_ok, parse_ok, sem_ok, opt_ok, opt_ast = run_test(test)
+            lex_ok, parse_ok, sem_ok, opt_ok, opt_ast, codegen_ok, vm_code = run_test(test)
         except Exception as e:
             print(f"  {RED}Erro interno no test runner: {e}{RESET}")
             traceback.print_exc()
@@ -870,6 +939,7 @@ def main():
         exp_par = test.get('expect_parse_ok')
         exp_sem = test.get('expect_sem_ok')
         exp_opt = test.get('expect_opt_ok')
+        exp_codegen = test.get('expect_codegen_ok')
 
         print_result(f"Léxico   (obtido={'OK' if lex_ok else 'ERRO'}, esperado={'OK' if exp_lex else 'ERRO' if exp_lex is not None else '?'})", lex_ok, exp_lex)
         print_result(f"Sintaxe  (obtido={'OK' if parse_ok else 'ERRO'}, esperado={'OK' if exp_par else 'ERRO' if exp_par is not None else '?'})", parse_ok, exp_par)
@@ -877,6 +947,9 @@ def main():
 
         if exp_opt is not None:
             print_result(f"Optimizer(obtido={'OK' if opt_ok else 'ERRO'}, esperado={'OK' if exp_opt else 'ERRO'})", opt_ok, exp_opt)
+        
+        if exp_codegen is not None:
+            print_result(f"CodeGen  (obtido={'OK' if codegen_ok else 'ERRO'}, esperado={'OK' if exp_codegen else 'ERRO'})", codegen_ok, exp_codegen)
 
         # Verifica a AST otimizada se houver uma função de verificação
         check_fn = test.get('check_opt')
@@ -885,12 +958,28 @@ def main():
             try:
                 result, msg = check_fn(opt_ast)
                 if result:
-                    print(f"  {GREEN}[OK]{RESET} Verificação AST: {msg}")
+                    print(f"  {GREEN}[OK]{RESET} Verificação Optimizer: {msg}")
                 else:
-                    print(f"  {RED}[FALHOU]{RESET} Verificação AST: {msg}")
+                    print(f"  {RED}[FALHOU]{RESET} Verificação Optimizer: {msg}")
                     check_passed = False
             except Exception as e:
-                print(f"  {RED}[ERRO]{RESET} Verificação AST falhou com exceção: {e}")
+                print(f"  {RED}[ERRO]{RESET} Verificação Optimizer falhou com exceção: {e}")
+                traceback.print_exc()
+                check_passed = False
+
+        # Verifica o código gerado se houver uma função de verificação
+        check_codegen_fn = test.get('check_codegen')
+        check_codegen_passed = True
+        if check_codegen_fn and vm_code is not None:
+            try:
+                result, msg = check_codegen_fn(vm_code)
+                if result:
+                    print(f"  {GREEN}[OK]{RESET} Verificação CodeGen: {msg}")
+                else:
+                    print(f"  {RED}[FALHOU]{RESET} Verificação CodeGen: {msg}")
+                    check_codegen_passed = False
+            except Exception as e:
+                print(f"  {RED}[ERRO]{RESET} Verificação CodeGen falhou com exceção: {e}")
                 traceback.print_exc()
                 check_passed = False
 
@@ -900,7 +989,9 @@ def main():
         if exp_par is not None: checks.append(parse_ok == exp_par)
         if exp_sem is not None: checks.append(sem_ok   == exp_sem)
         if exp_opt is not None: checks.append(opt_ok   == exp_opt)
+        if exp_codegen is not None: checks.append(codegen_ok == exp_codegen)
         checks.append(check_passed)
+        checks.append(check_codegen_passed)
 
         if all(checks):
             passed += 1

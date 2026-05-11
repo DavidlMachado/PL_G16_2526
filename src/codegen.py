@@ -12,7 +12,7 @@ def find_nodes(ast, tag):
     return nodes
 
 def find_unit(ast, tag, name=None):
-    # saca o primeiro PROGRAM, FUNCTION ou SUBROUTINE que aparecer
+    # devolve o primeiro PROGRAM, FUNCTION ou SUBROUTINE que aparecer
     for node in ast:
         if node[0] == tag:
             if name is None or node[1] == name:
@@ -20,9 +20,10 @@ def find_unit(ast, tag, name=None):
     return None
 
 class CodeGenerator:
-    def __init__(self, symbol_table):
+    def __init__(self, symbol_table, goto_labels):
         self.symbol_table = symbol_table
         self.vm_code = []
+        self.goto_labels = goto_labels
         self.label_counter = 0
         self.current_scope = 'global'
 
@@ -33,9 +34,13 @@ class CodeGenerator:
         # map de operadores da AST para a VM
         self.op_map = {
             '+': 'add', '-': 'sub', '*': 'mul', '/': 'div',
+            '**': 'pow', 'POW': 'pow',
+            # Versões diretas do Fortran (com pontos)
+            '.LT.': 'inf', '.LE.': 'infeq', '.EQ.': 'equal', '.NE.': 'nequal',
+            '.GT.': 'sup', '.GE.': 'supeq', '.AND.': 'and', '.OR.': 'or',
+            # Versões limpas (para segurança)
             'LT': 'inf', 'LE': 'infeq', 'EQ': 'equal', 'NE': 'nequal',
-            'GT': 'sup', 'GE': 'supeq', 'AND': 'and', 'OR': 'or',
-            'POW': 'pow'
+            'GT': 'sup', 'GE': 'supeq', 'AND': 'and', 'OR': 'or'
         }
 
     def new_label(self, prefix="L"):
@@ -43,7 +48,8 @@ class CodeGenerator:
         return f"{prefix}{self.label_counter}"
 
     def add_instruction(self, instr, *args):
-        self.vm_code.append(f"{instr} " + ' '.join(map(str, args)))
+        parts = [instr] + [str(a) for a in args]
+        self.vm_code.append(' '.join(parts))
 
     def add_label(self, label):
         self.vm_code.append(f"{label}:")
@@ -52,7 +58,8 @@ class CodeGenerator:
         # alocar memória global (endereços)
         current_address = 0
         global_scope = self.symbol_table.scopes['global']
-        for name, info in global_scope.items():
+        # Ordenar por nome para garantir atribuição de endereços determinística
+        for name, info in sorted(global_scope.items()):
             if info.get('is_array') is not None:
                 info['address'] = current_address
                 info['scope_type'] = 'global'
@@ -75,11 +82,11 @@ class CodeGenerator:
         for l_node in find_nodes(ast, 'LABEL'):
             f_label = l_node[1]
             if f_label not in self.fortran_labels:
-                self.fortran_labels[f_label] = self.new_label(f"L{f_label}_")
+                self.fortran_labels[f_label] = self.new_label(f"L{f_label}")
 
         # start up
         main_program_node = find_unit(ast, 'PROGRAM')
-        main_label = f"prog_{main_program_node[1]}" if main_program_node and main_program_node[1] else "prog_main"
+        main_label = f"prog{main_program_node[1]}" if main_program_node and main_program_node[1] else "progmain"
 
         self.add_instruction("start")
         self.add_instruction("jump", main_label)
@@ -99,6 +106,10 @@ class CodeGenerator:
 
     def visit(self, node):
         if node is None:
+            return
+
+        # guarda contra valores primitivos (ints, strings) que não são nós
+        if not isinstance(node, (list, tuple)):
             return
 
         tag = node[0]
@@ -129,7 +140,7 @@ class CodeGenerator:
             return type_map.get(node[1], 'UNKNOWN')
         
         if tag in ('VAR', 'CALL', 'ARRAY_ACCESS'):
-            info = self.symbol_table.lookup(node[1], self.current_scope)
+            info = self.symbol_table.lookup(node[1])
             return info.get('type', 'UNKNOWN')
 
         if tag in ['+', '-', '*', '/', 'POW', 'UMINUS']:
@@ -155,41 +166,38 @@ class CodeGenerator:
 
     def visit_ASSIGN(self, node):
         target = node[1]
-        
-        # avalia exp -> fica na stack
-        self.visit(node[2])
 
-        if target[0] == 'VAR':
-            var_info = self.symbol_table.lookup(target[1], self.current_scope)
+        if target[0] == 'ARRAY_ACCESS':
+            self.visit(target) # Gera [Pointer, Índice]
+            self.visit(node[2]) # Avalia a expressão: [Pointer, Índice, Valor]
+            self.add_instruction("storen") # Consome os três!
+        else:
+            self.visit(node[2]) # Avalia a expressão: [Valor]
+            var_info = self.symbol_table.lookup(target[1])
             instr = "storeg" if var_info['scope_type'] == 'global' else "storel"
             self.add_instruction(instr, var_info['address'])
 
-        elif target[0] == 'ARRAY_ACCESS':
-            # stack: [val] -> calcular addr -> stack: [val, addr]
-            self.visit(target) 
-            self.add_instruction("swap") # VM precisa de [addr, val]
-            self.add_instruction("storei")
-
     def visit_ARRAY_ACCESS(self, node):
         # deixa o endereço da cena na stack
-        var_info = self.symbol_table.lookup(node[1], self.current_scope)
+        var_info = self.symbol_table.lookup(node[1])
         index_expr = node[2]
         
+        # Põe o Endereço Base na stack (Pointer)
         if var_info['scope_type'] == 'global':
-            self.add_instruction("pushi", var_info['address'])
+            self.add_instruction("pushgp")
         else:
             self.add_instruction("pushfp")
-            self.add_instruction("pushi", var_info['address'])
-            self.add_instruction("add")
             
+        # Calcula o Índice Total (offset da var + índice do Fortran - 1)
+        self.add_instruction("pushi", var_info['address'])
         self.visit(index_expr)
         self.add_instruction("pushi", 1)
         self.add_instruction("sub")
         self.add_instruction("add")
 
     def visit_IF(self, node):
-        else_label = self.new_label("if_else")
-        endif_label = self.new_label("if_end")
+        else_label = self.new_label("ifelse")
+        endif_label = self.new_label("ifend")
 
         self.visit(node[1])
         self.add_instruction("jz", else_label)
@@ -233,14 +241,15 @@ class CodeGenerator:
             self.add_instruction("pushs", f'"{v}"')
 
     def visit_VAR(self, node):
-        var_info = self.symbol_table.lookup(node[1], self.current_scope)
+        var_info = self.symbol_table.lookup(node[1])
         instr = "pushg" if var_info['scope_type'] == 'global' else "pushl"
         self.add_instruction(instr, var_info['address'])
 
     def visit_LABEL(self, node):
         f_label, statement = node[1], node[2]
         
-        self.add_label(self.fortran_labels[f_label])
+        if f_label in self.goto_labels:
+            self.add_label(self.fortran_labels[f_label])
         self.visit(statement)
 
         # se for um label de fecho de ciclo DO
@@ -265,11 +274,11 @@ class CodeGenerator:
 
     def visit_DO(self, node):
         f_label, var_name = node[1], node[2]
-        var_info = self.symbol_table.lookup(var_name, self.current_scope)
+        var_info = self.symbol_table.lookup(var_name)
 
         self.do_loops[f_label] = {
-            'start_label': self.new_label("do_start"),
-            'end_label': self.new_label("do_end"),
+            'start_label': self.new_label("dostart"),
+            'end_label': self.new_label("doend"),
             'var_info': var_info,
             'step_expr': node[5],
             'end_expr': node[4]
@@ -287,8 +296,8 @@ class CodeGenerator:
         push_instr = "pushg" if var_info['scope_type'] == 'global' else "pushl"
         self.add_instruction(push_instr, var_info['address'])
         self.visit(loop['end_expr'])
-        self.add_instruction("sup")
-        self.add_instruction("jp", loop['end_label'])
+        self.add_instruction("infeq") # Verifica se a variável <= end (1 se sim, 0 se não)
+        self.add_instruction("jz", loop['end_label']) # Se for 0 (falso), significa que passou o limite, logo salta para o fim
 
     def visit_CONTINUE(self, node):
         pass # sem ação
@@ -306,76 +315,97 @@ class CodeGenerator:
 
     def visit_READ(self, node):
         for item in node[1]:
-            var_info = self.symbol_table.lookup(item[1], self.current_scope)
+            var_info = self.symbol_table.lookup(item[1])
             var_type = var_info.get('type')
-
-            if var_type == 'REAL':
-                self.add_instruction("readf")
-            else:
-                self.add_instruction("readi") # fallback inteiro
             
+            # Se for array, prepara [Pointer, Índice] na stack
+            if item[0] == 'ARRAY_ACCESS':
+                self.visit(item)
+
+            # Lê o valor
+            self.add_instruction("read")
+
+            # Converte se necessario
+            if var_type == 'REAL':
+                self.add_instruction("atof")
+            elif var_type == 'INTEGER' or var_type == 'LOGICAL':
+                self.add_instruction("atoi")
+
+            # Guarda
             if item[0] == 'VAR':
                 instr = "storeg" if var_info['scope_type'] == 'global' else "storel"
                 self.add_instruction(instr, var_info['address'])
             elif item[0] == 'ARRAY_ACCESS':
-                self.visit(item) # empilha o address
-                self.add_instruction("storei")
+                # Stack tem [Pointer, Índice, Valor], o storen trata do resto!
+                self.add_instruction("storen")
 
     def visit_CALL(self, node):
         name, args = node[1], node[2]
-        info = self.symbol_table.lookup(name, self.current_scope)
+        info = self.symbol_table.lookup(name)
 
         if info.get('is_array'):
             # X = ARR(I) - o parser às vezes confunde call com array access, trata-se aqui
             self.visit(('ARRAY_ACCESS', name, args[0], node[3]))
-            self.add_instruction("loadi")
+            self.add_instruction("loadn")
         else:
+            if name == 'MOD':
+                # O MOD(A, B) precisa do A e depois do B na stack. A instrução da VM é 'mod'
+                self.visit(args[0])
+                self.visit(args[1])
+                self.add_instruction("mod")
+                return
             # right to left para a stack
             for arg_expr in reversed(args):
                 self.visit(arg_expr)
-            self.add_instruction("call", f"f_{name}", len(args))
+            self.add_instruction("call", f"f{name}")
 
     def visit_CALL_STMT(self, node):
         args = node[2]
         for arg_expr in reversed(args):
             self.visit(arg_expr)
-        self.add_instruction("call", f"f_{node[1]}", len(args))
+        self.add_instruction("call", f"f{node[1]}")
 
     def _setup_subprogram(self, name, params):
-        self.add_label(f"f_{name}")
+        self.add_label(f"f{name}")
         local_scope = self.symbol_table.scopes[name]
         
-        # enter só precisa do espaço para os locals, o caller já tratou dos params
+        # alloc space para os locals com pushn (a EWVM não tem 'enter')
         num_locals_and_params = sum((info.get('size') or 1) for info in local_scope.values() if info.get('scope_type') == 'local')
-        self.add_instruction("enter", num_locals_and_params - len(params))
+        n_locals = num_locals_and_params - len(params)
+        
+        if n_locals > 0:
+            self.add_instruction("pushn", n_locals)
 
     def visit_SUBROUTINE(self, node):
         name, params, statements = node[1], node[2], node[4]
         self.current_scope = name
+        self.symbol_table.enter_scope(name)
         
         self._setup_subprogram(name, params)
         for stmt in statements: self.visit(stmt)
 
         # safety net de retorno implícito
-        self.add_instruction("leave")
-        self.add_instruction("ret")
+        self.add_instruction("return")
+
         self.current_scope = 'global'
+        self.symbol_table.leave_scope()
 
     def visit_FUNCTION(self, node):
         name, params, statements = node[1], node[3], node[5]
         self.current_scope = name
+        self.symbol_table.enter_scope(name)
 
         self._setup_subprogram(name, params)
         for stmt in statements: self.visit(stmt)
 
-        self.add_instruction("leave")
-        self.add_instruction("ret")
+        self.add_instruction("return")
+
         self.current_scope = 'global'
+        self.symbol_table.leave_scope()
 
     def visit_RETURN(self, node):
         # se tiver um valor de retorno, está guardado na var local com o nome da func
         if self.current_scope != 'global' and self.symbol_table.scopes['global'][self.current_scope].get('type'):
-            self.visit(('VAR', self.current_scope, node[1]))
+            self.visit(('VAR', self.current_scope, node[-1]))
 
-        self.add_instruction("leave")
-        self.add_instruction("ret")
+        self.add_instruction("return")
