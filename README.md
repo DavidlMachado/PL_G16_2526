@@ -1,12 +1,12 @@
-# Compilador Fortran 77 (ANSI X3.9-1978)
+# Fortran 77 Compiler (ANSI X3.9-1978)
 
-Este projeto consiste no desenvolvimento de um compilador para a linguagem **Fortran 77**, realizado no âmbito da unidade curricular de **Processamento de Linguagens (2026)**. O objetivo principal é traduzir código fonte Fortran para o código máquina da Máquina Virtual disponibilizada.
+This project consists of the development of a compiler for the **Fortran 77** programming language, built as part of the **Language Processing (2026)** course. The compiler translates Fortran 77 source code into machine code for the **EWVM** (Virtual Machine) provided by the university.
+
+The compiler is implemented in **Python** using the **PLY** (Python Lex-Yacc) library and covers all mandatory stages of a compiler pipeline, as well as an optional optimization phase.
 
 ---
 
-## 🏗 Estrutura do Projeto
-
-A organização do repositório segue uma lógica modular para facilitar a manutenção e o processo de compilação:
+## 🏗 Project Structure
 
 ```text
 PL_G16_2526/
@@ -21,40 +21,106 @@ PL_G16_2526/
 │       ├── errors.py    # Centralized error messaging system
 │       └── colors.py    # Terminal styling definitions
 ├── tests/               # Test programs (.f and .vm)
-├── docs/                # Technical documentation (Grammar and Tokens)
-│   ├── grammar.md       # Grammar description
-│   └── tokens.md        # Tokens identification
 └── README.md            # Project instructions
+```
+
+
+---
+
+## ⚙️ Compiler Pipeline
+
+The compiler processes Fortran 77 source code through the following stages:
+
+1. **Lexical Analysis** — Tokenizes the source code using `ply.lex`. Supports free-form Fortran syntax with `!` comments. Handles the distinction between integer literals and line labels.
+
+2. **Syntax Analysis** — Builds an Abstract Syntax Tree (AST) using `ply.yacc`. Enforces the strict declaration-before-execution structure of Fortran 77. Resolves operator precedence and handles the ambiguity between array access and function calls.
+
+3. **Semantic Analysis** — Traverses the AST validating type compatibility, variable declarations, array bounds, label consistency, and subprogram signatures. Collects errors without stopping, maximizing feedback per compilation run.
+
+4. **Optimization** — Produces an optimized AST through:
+   - **Dead code elimination** after unconditional `GOTO`s and in static `IF` branches
+   - **Removal of unused declarations** (variables, functions, subroutines)
+   - **Constant folding** for compile-time evaluable expressions
+
+5. **Code Generation** — Translates the optimized AST into EWVM instructions, handling arithmetic, control flow, arrays, I/O, and subprogram calls.
+
+---
+
+## 🚀 Supported Features
+
+| Feature | Supported |
+|:--------|:---------:|
+| Integer, Real, Logical types | ✅ |
+| Arithmetic, relational and logical expressions | ✅ |
+| `IF-THEN-ELSE` / `ENDIF` | ✅ |
+| `DO` loops with labels | ✅ |
+| `GOTO` and label statements | ✅ |
+| `READ` and `PRINT` | ✅ |
+| 1D static arrays | ✅ |
+| `FUNCTION` subprograms | ✅ |
+| `SUBROUTINE` subprograms | ✅ |
+| Intrinsic functions (`MOD`, `ABS`, `SQRT`, etc.) | ✅ |
+| Optimization phase | ✅ |
+
+---
+
+## 🛠 How to Run
+
+### Requirements
+
+- Python 3.8+
+- PLY library
+
+Install PLY with:
+
+```bash
+pip install ply
+```
+
+### Compiling a Fortran file
+
+```bash
+python3 src/main.py  [options]
+```
+
+**Options:**
+
+| Flag | Description |
+|:-----|:------------|
+| `-o, --output <file>` | Output file for VM code (default: `<input_file>.vm`) |
+| `--no-opt` | Disable all optimizations |
+| `--no-warn` | Suppress all warnings |
+| `-h, --help` | Show help message |
+
+**Examples:**
+
+```bash
+# Basic compilation
+python3 src/main.py tests/factorial.f
+
+# Custom output file
+python3 src/main.py tests/factorial.f -o output/factorial.vm
+
+# Compile without optimizations
+python3 src/main.py tests/factorial.f --no-opt
+
+# Suppress warnings
+python3 src/main.py tests/factorial.f --no-warn
 ```
 
 ---
 
-## 🚀 Requisitos Técnicos Implementados
+## 👥 Group Members
 
-O compilador suporta as construções essenciais da norma Fortran 77:
-* **Tipos**: Declaração de variáveis e tipos (INTEGER, REAL, LOGICAL).
-* **Expressões**: Aritméticas, lógicas e relacionais.
-* **Fluxo**: `IF-THEN-ELSE`, ciclos `DO` com labels e comandos `GOTO`.
-* **I/O**: Operações de `READ` e `PRINT`.
-* **Subprogramas**: Suporte para `SUBROUTINE` e `FUNCTION` (Valorização).
-
----
-
-## 🛠 Como Executar
-
-
-
----
-
-## 👥 Grupo de Trabalho
-
-Constituintes do grupo de trabalho:
-
-| Nome | Número |
-| :--- | :--- |
+| Name | Student ID |
+|:-----|:----------:|
 | David Lopes Machado | a107325 |
-|  |  |
 | Rodrigo de Sousa Campos Pacheco da Rocha | a107335 |
-|  |  |
-  João Pedro Araújo Fernandes | a103568 |
+| João Pedro Araújo Fernandes | a103568 |
+
+---
+
+## 📄 License
+
+This project was developed for academic purposes at the **University of Minho**, 2026.
 
