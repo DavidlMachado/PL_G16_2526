@@ -246,10 +246,11 @@ def p_call_statement(p):
     call_statement : CALL VAR '(' expression_list ')'
                    | CALL VAR '(' ')'
     """
+    line = p.lineno(1)
     if len(p) == 6:
-        p[0] = ('CALL_STMT', p[2], p[4])
+        p[0] = ('CALL_STMT', p[2], p[4], line)
     else:
-        p[0] = ('CALL_STMT', p[2], [])
+        p[0] = ('CALL_STMT', p[2], [], line)
 
 def p_print_statement(p):
     """

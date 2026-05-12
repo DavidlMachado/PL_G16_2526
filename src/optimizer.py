@@ -92,6 +92,11 @@ class Optimizer:
         if not info['used']:
             kind = 'Função' if is_function else 'Subrotina'
             self.log(f"{kind} '{name}' removida (nunca chamada).")
+            # Remove da symbol table também
+            del global_scope[name]
+            # Remove o scope inteiro da função
+            if name in self.symbol_table.scopes:
+                del self.symbol_table.scopes[name]
             return None
 
         new_decls = self.optimize_declarations(decls, name)
@@ -143,6 +148,7 @@ class Optimizer:
 
                 if not var_info['used']:
                     self.log(f"Variável '{var_name}' removida do scope '{scope}' (nunca usada).")
+                    del scope_vars[var_name]
                 else:
                     new_var_list.append(var)
 
@@ -234,6 +240,7 @@ class Optimizer:
         new_then_block = self.optimize_statements(then_block)
         new_else_block = self.optimize_statements(else_block)
 
+
         return ('IF', new_condition, new_then_block, new_else_block, line)
 
     def optimize_LABEL(self, node):
@@ -285,10 +292,11 @@ class Optimizer:
         return ('PRINT', new_expression_list)
 
     def optimize_CALL_STMT(self, node):
-        """Recebe um nodo ('CALL_STMT', name, args_list) e otimiza os argumentos."""
+        """Recebe um nodo ('CALL_STMT', name, args_list, line) e otimiza os argumentos."""
         name = node[1]
+        line = node[-1]
         new_args_list = [self.optimize_node(arg) for arg in node[2]]
-        return ('CALL_STMT', name, new_args_list)
+        return ('CALL_STMT', name, new_args_list, line)
 
     def optimize_CALL(self, node):
         """Recebe um nodo ('CALL', name, args_list, line) e otimiza os argumentos."""

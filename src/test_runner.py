@@ -149,7 +149,7 @@ TESTS = [
         'expect_sem_ok':   True,
         'expect_codegen_ok': True,
         'check_codegen': lambda vm_code: (
-            any('do_start' in line for line in vm_code) and any('do_end' in line for line in vm_code),
+            any('dostart' in line for line in vm_code) and any('doend' in line for line in vm_code),
             "Ciclo DO devia gerar labels do_start e do_end"
         )
     },
@@ -208,8 +208,8 @@ TESTS = [
         'expect_sem_ok':   True,
         'expect_codegen_ok': True,
         'check_codegen': lambda vm_code: (
-            'store' in vm_code and 'load' in vm_code,
-            "Acesso a array devia usar store/load"
+            any('storen' in line for line in vm_code) and any('loadn' in line for line in vm_code),
+            "Acesso a array devia usar storen/loadn"
         )
     },
 
@@ -246,8 +246,8 @@ TESTS = [
         'expect_sem_ok':   True,
         'expect_codegen_ok': True,
         'check_codegen': lambda vm_code: (
-            'call f_CONVRT 2' in vm_code and 'f_CONVRT:' in vm_code,
-            "Chamada de função devia gerar 'call' e a definição da função 'f_CONVRT:'"
+            any('call fCONVRT' in line for line in vm_code) and any('fCONVRT:' in line for line in vm_code),
+            "Chamada de função devia gerar 'call fCONVRT' e a definição 'fCONVRT:'"
         )
     },
 
@@ -613,6 +613,68 @@ TESTS = [
         ),
     },
 
+    {
+    'name': 'Optimizer - Label não alvo de GOTO removido',
+    'code': """\
+ PROGRAM TESTE
+ INTEGER X
+ X = 1
+ 10 CONTINUE
+ X = 2
+ END
+""",
+    'expect_lex_ok':   True,
+    'expect_parse_ok': True,
+    'expect_sem_ok':   True,
+    'expect_opt_ok':   True,
+    # O label 10 existe mas nunca é alvo de nenhum GOTO, deve ser removido
+    'check_opt': lambda opt_ast: (
+        all(s[0] != 'LABEL' for s in ast_get_stmts(ast_find_program(opt_ast)) if s is not None),
+        "Label '10' nunca é alvo de um GOTO e devia ter sido removido"
+    ),
+},
+
+{
+    'name': 'Optimizer - Label alvo de DO mantido',
+    'code': """\
+ PROGRAM TESTE
+ INTEGER I
+ DO 10 I = 1, 5
+ 10 CONTINUE
+ END
+""",
+    'expect_lex_ok':   True,
+    'expect_parse_ok': True,
+    'expect_sem_ok':   True,
+    'expect_opt_ok':   True,
+    # O label 10 é alvo do DO, deve ser mantido
+    'check_opt': lambda opt_ast: (
+        any(s[0] == 'LABEL' and s[1] == 10 for s in ast_get_stmts(ast_find_program(opt_ast)) if s is not None),
+        "Label '10' é alvo de um DO e devia ter sido mantido"
+    ),
+},
+{
+    'name': 'Optimizer - Label alvo de GOTO mantido',
+    'code': """\
+ PROGRAM TESTE
+ INTEGER X
+ X = 1
+ GOTO 10
+ 10 CONTINUE
+ X = 2
+ END
+""",
+    'expect_lex_ok':   True,
+    'expect_parse_ok': True,
+    'expect_sem_ok':   True,
+    'expect_opt_ok':   True,
+    # O label 10 é alvo do GOTO, deve ser mantido
+    'check_opt': lambda opt_ast: (
+        any(s[0] == 'LABEL' and s[1] == 10 for s in ast_get_stmts(ast_find_program(opt_ast)) if s is not None),
+        "Label '10' é alvo de um GOTO e devia ter sido mantido"
+    ),
+},
+
     # --- Eliminar funções/subrotinas não usadas ---
 
     {
@@ -907,6 +969,10 @@ def run_test(test):
             print(f"  {RED}[ERRO CODEGEN INTERNO]: {e}{RESET}")
             traceback.print_exc()
 
+    if vm_code is not None and codegen_ok:
+        print(f"\n  {BLUE}Código VM gerado:{RESET}")
+        for line in vm_code:
+            print(f"    {line}")
 
     return lex_ok, parse_ok, sem_ok, opt_ok, opt_ast, codegen_ok, vm_code
 

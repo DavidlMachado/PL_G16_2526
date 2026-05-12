@@ -461,6 +461,17 @@ class SemanticAnalyzer:
 
             return None  # tipo desconhecido por agora
 
+    def visit_CALL_STMT(self, node):
+        """
+        Recebe um nodo do tipo ('CALL_STMT', nome, args_list) e valida a chamada
+        a uma SUBROUTINE, verificando se foi declarada e se o número de argumentos é correto.
+        """
+        name = node[1]
+        args_list = node[2]
+        line = node[-1]
+        node = ('CALL', name, args_list, line)
+        self.visit_CALL(node)
+
     def visit_IF(self, node):
         """
         Recebe um nodo do tipo ('IF', condition, then_block, else_block, line) 

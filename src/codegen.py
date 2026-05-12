@@ -108,14 +108,16 @@ class CodeGenerator:
         if node is None:
             return
 
-        # guarda contra valores primitivos (ints, strings) que não são nós
         if not isinstance(node, (list, tuple)):
             return
 
         tag = node[0]
-        # junta tudo o que é operador binário no mesmo visitor
+
         if tag in self.op_map or tag in ['UMINUS', 'NOT']:
             method_name = "visit_BINOP"
+        elif tag == 'ARRAY_ACCESS':
+            # Em expressões, ARRAY_ACCESS quer o VALOR não o endereço
+            method_name = "visit_ARRAY_ACCESS_value"
         else:
             method_name = f"visit_{tag}"
         
@@ -195,6 +197,11 @@ class CodeGenerator:
         self.add_instruction("sub")
         self.add_instruction("add")
 
+    def visit_ARRAY_ACCESS_value(self, node):
+        """Deixa o VALOR do array na stack (para uso em expressões)."""
+        self.visit_ARRAY_ACCESS(node)
+        self.add_instruction("loadn")
+
     def visit_IF(self, node):
         else_label = self.new_label("ifelse")
         endif_label = self.new_label("ifend")
@@ -220,9 +227,15 @@ class CodeGenerator:
         op = node[0]
         if op == 'UMINUS':
             self.visit(node[1])
-            self.add_instruction('neg')
+            self.add_instruction('pushi', -1)
+            self.add_instruction('mul')
         elif op == 'NOT':
             self.visit(node[1])
+            self.add_instruction('not')
+        elif op == 'NE':
+            self.visit(node[1])
+            self.visit(node[2])
+            self.add_instruction('equal')
             self.add_instruction('not')
         else:
             self.visit(node[1])
@@ -309,7 +322,7 @@ class CodeGenerator:
             
             if t == 'INTEGER': self.add_instruction("writei")
             elif t == 'REAL': self.add_instruction("writef")
-            elif t == 'LOGICAL': self.add_instruction("writeb")
+            elif t == 'LOGICAL': self.add_instruction("writei")
             elif t == 'CHARACTER': self.add_instruction("writes")
             else: self.add_instruction("writei") # fallback
 
@@ -345,8 +358,8 @@ class CodeGenerator:
 
         if info.get('is_array'):
             # X = ARR(I) - o parser às vezes confunde call com array access, trata-se aqui
-            self.visit(('ARRAY_ACCESS', name, args[0], node[3]))
-            self.add_instruction("loadn")
+            self.visit_ARRAY_ACCESS_value(('ARRAY_ACCESS', name, args[0], node[3]))
+            return
         else:
             if name == 'MOD':
                 # O MOD(A, B) precisa do A e depois do B na stack. A instrução da VM é 'mod'
@@ -404,8 +417,17 @@ class CodeGenerator:
         self.symbol_table.leave_scope()
 
     def visit_RETURN(self, node):
-        # se tiver um valor de retorno, está guardado na var local com o nome da func
-        if self.current_scope != 'global' and self.symbol_table.scopes['global'][self.current_scope].get('type'):
-            self.visit(('VAR', self.current_scope, node[-1]))
+        """
+        Se estiver numa FUNCTION, empurra o valor de retorno (variável local
+        com o nome da função) para o topo da stack antes do return.
+        """
+        if self.current_scope != 'global':
+            global_info = self.symbol_table.scopes['global'].get(self.current_scope)
+            # Só empurra se for FUNCTION (tem tipo de retorno), não SUBROUTINE
+            if global_info and global_info.get('type') is not None:
+                local_scope = self.symbol_table.scopes[self.current_scope]
+                ret_var = local_scope.get(self.current_scope)
+                if ret_var:
+                    self.add_instruction("pushl", ret_var['address'])
 
         self.add_instruction("return")
