@@ -18,6 +18,7 @@ pushg 2
 pushi 1
 sub
 add
+loadn
 read
 atoi
 storen

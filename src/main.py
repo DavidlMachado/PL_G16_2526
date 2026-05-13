@@ -59,33 +59,25 @@ def main():
 
     print(f"A compilar '{input_file}'...")
 
-    # --- Análise Léxica ---
-    lexer.lineno = 1
-    lexer.line_start = 0
-    lexer.error_count = 0
-    lexer.input(code)
-    while True:
-        tok = lexer.token()
-        if not tok:
-            break
-    if lexer.error_count > 0:
-        print(f"Compilação falhou com {lexer.error_count} erro(s) léxico(s).")
-        sys.exit(1)
-    print("  ✓ Análise Léxica concluída.")
-
-    # --- Análise Sintática ---
+    # --- Análise Léxica e Sintática ---
     ast = None
     try:
-        # Reinicializa o mesmo lexer para o parser, pois ele foi consumido na fase anterior.
+        # Reinicializa o estado do lexer e o parser irá invocá-lo.
         lexer.lineno = 1
         lexer.line_start = 0
-        lexer.input(code) # O mais importante: reposiciona o lexer no início do código.
+        lexer.error_count = 0
         ast = parser.parse(code, lexer=lexer)
     except SintaxError as e:
         print(e) # A exceção já vem formatada
         print("Compilação falhou devido a um erro sintático.")
         sys.exit(1)
-    
+
+    # Após o parse, verificamos se o lexer encontrou erros.
+    if lexer.error_count > 0:
+        print(f"Compilação falhou com {lexer.error_count} erro(s) léxico(s).")
+        sys.exit(1)
+    print("  ✓ Análise Léxica concluída.")
+
     if not ast:
         print("Compilação falhou na análise sintática (AST vazia).")
         sys.exit(1)

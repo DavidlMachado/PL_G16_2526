@@ -64,8 +64,9 @@ class Optimizer:
         decls = node[2]
         stmts = node[3]
 
-        # Visita as declarações e statements para as otimizar
-        new_decls = self.optimize_declarations(decls)
+        # Visita as declarações e statements para as 
+        scope_name = name if name and name in self.symbol_table.scopes else 'global'
+        new_decls = self.optimize_declarations(decls,scope_name)
         new_stmts = self.optimize_statements(stmts)
 
         return ('PROGRAM', name, new_decls, new_stmts)
@@ -135,6 +136,7 @@ class Optimizer:
         # Vamos buscar o scope
         scope_vars = self.symbol_table.scopes.get(scope)
         new_decls = []
+        
 
         for decl in decls:
             type_val = decl[1]
@@ -146,6 +148,9 @@ class Optimizer:
                 var_name = var[1]
                 var_info = scope_vars.get(var_name)
 
+                if var_info is None:
+                    new_var_list.append(var)
+                    continue
                 if not var_info['used']:
                     self.log(f"Variável '{var_name}' removida do scope '{scope}' (nunca usada).")
                     del scope_vars[var_name]

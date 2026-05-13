@@ -1,0 +1,14 @@
+start
+jump progTESTEOPT
+progTESTEOPT:
+pushi 8
+storeg 10
+jump L1001
+L1001:
+pushi 1
+storeg 12
+pushg 10
+writei
+pushg 12
+writei
+stop

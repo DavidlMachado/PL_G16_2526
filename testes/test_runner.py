@@ -884,57 +884,57 @@ def print_header(text):
 
 def print_result(label, ok, expected):
     if expected is None:
-        status = f"{YELLOW}[IGNORADO]{RESET}"
-    elif ok == expected:
+        return  # Não imprime nada para fases ignoradas
+    
+    if ok == expected:
         status = f"{GREEN}[OK]{RESET}"
     else:
         status = f"{RED}[FALHOU]{RESET}"
-    print(f"  {status} {label}")
+
+    obtido_str = 'OK' if ok else 'ERRO'
+    esperado_str = 'OK' if expected else 'ERRO'
+    formatted_label = f"{label} (obtido={obtido_str}, esperado={esperado_str})"
+    
+    print(f"  {status} {formatted_label}")
 
 def run_test(test):
     """Corre um teste e devolve (lex_ok, parse_ok, sem_ok, opt_ok, opt_ast, codegen_ok, vm_code)."""
 
     code = test['code']
 
-    # ── Fase 1: Léxico ────────────────────────────────────────────────────────
-    lex_ok = False
-    try:
-        from lexer import lexer as fortran_lexer
-        fortran_lexer.lineno = 1
-        fortran_lexer.line_start = 0
-        fortran_lexer.error_count = 0
-        fortran_lexer.input(code)
-        while True:
-            tok = fortran_lexer.token()
-            if not tok:
-                break
-        lex_ok = fortran_lexer.error_count == 0
-    except Exception as e:
-        print(f"  {RED}[ERRO LÉXICO INTERNO]: {e}{RESET}")
-        traceback.print_exc()
-
-    # ── Fase 2: Sintático ─────────────────────────────────────────────────────
+    # ── Fases 1 & 2: Léxico e Sintático (executados em conjunto) ──────────────
     ast = None
+    lex_ok = False
     parse_ok = False
     try:
         from parser import parser as fortran_parser, SintaxError
-        from lexer import lexer as fortran_lexer2
-        fortran_lexer2.lineno = 1
-        fortran_lexer2.line_start = 0
-        ast = fortran_parser.parse(code, lexer=fortran_lexer2)
-        parse_ok = ast is not None
+        from lexer import lexer as fortran_lexer
+
+        # Reinicia o estado do lexer antes de o usar
+        fortran_lexer.lineno = 1
+        fortran_lexer.line_start = 0
+        fortran_lexer.error_count = 0
+
+        # O parser invoca o lexer. Erros léxicos são impressos por t_error.
+        ast = fortran_parser.parse(code, lexer=fortran_lexer)
+
+        # A análise léxica teve sucesso se não houver erros contados.
+        lex_ok = fortran_lexer.error_count == 0
+        # A análise sintática teve sucesso se a AST foi gerada E não houve erros léxicos.
+        parse_ok = ast is not None and lex_ok
     except SintaxError as e:
         # A exceção já tem a mensagem de erro formatada.
         print(f"  {e}")
+        lex_ok = fortran_lexer.error_count == 0 # Atualiza o status do lexer
         parse_ok = False
     except Exception as e:
-        print(f"  {RED}[ERRO SINTÁTICO INTERNO]: {e}{RESET}")
+        print(f"  {RED}[ERRO SINTÁTICO/LÉXICO INTERNO]: {e}{RESET}")
         traceback.print_exc()
 
     # ── Fase 3: Semântico ─────────────────────────────────────────────────────
     analyzer = None
     sem_ok = False
-    if ast is not None:
+    if parse_ok: # Apenas avança se as fases anteriores tiverem sucesso
         try:
             from semantic import SemanticAnalyzer
             analyzer = SemanticAnalyzer()
@@ -1007,15 +1007,15 @@ def main():
         exp_opt = test.get('expect_opt_ok')
         exp_codegen = test.get('expect_codegen_ok')
 
-        print_result(f"Léxico   (obtido={'OK' if lex_ok else 'ERRO'}, esperado={'OK' if exp_lex else 'ERRO' if exp_lex is not None else '?'})", lex_ok, exp_lex)
-        print_result(f"Sintaxe  (obtido={'OK' if parse_ok else 'ERRO'}, esperado={'OK' if exp_par else 'ERRO' if exp_par is not None else '?'})", parse_ok, exp_par)
-        print_result(f"Semântica(obtido={'OK' if sem_ok else 'ERRO'}, esperado={'OK' if exp_sem else 'ERRO' if exp_sem is not None else '?'})", sem_ok, exp_sem)
+        print_result("Léxico   ", lex_ok, exp_lex)
+        print_result("Sintaxe  ", parse_ok, exp_par)
+        print_result("Semântica", sem_ok, exp_sem)
 
         if exp_opt is not None:
-            print_result(f"Optimizer(obtido={'OK' if opt_ok else 'ERRO'}, esperado={'OK' if exp_opt else 'ERRO'})", opt_ok, exp_opt)
+            print_result("Optimizer", opt_ok, exp_opt)
         
         if exp_codegen is not None:
-            print_result(f"CodeGen  (obtido={'OK' if codegen_ok else 'ERRO'}, esperado={'OK' if exp_codegen else 'ERRO'})", codegen_ok, exp_codegen)
+            print_result("CodeGen  ", codegen_ok, exp_codegen)
 
         # Verifica a AST otimizada se houver uma função de verificação
         check_fn = test.get('check_opt')
