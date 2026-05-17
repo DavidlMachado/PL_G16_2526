@@ -9,6 +9,29 @@ import sys
 import os
 import traceback
 
+# Descobre onde este script está (pasta 'testes') e sobe um nível ('..')
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, '..'))
+src_dir = os.path.join(project_root, 'src')
+
+# Adiciona a raiz do projeto (PL_G16_2526) aos caminhos do Python
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+if src_dir not in sys.path:
+    sys.path.insert(0, src_dir)
+
+# Imports globais
+try:
+    from src.parser import parser as fortran_parser, SintaxError
+    from src.lexer import lexer as fortran_lexer
+    # Podes já importar os outros módulos aqui também, se quiseres
+    from src.semantic import SemanticAnalyzer
+    from src.optimizer import Optimizer
+    from src.codegen import CodeGenerator
+except ImportError as e:
+    print(f"\033[91m[ERRO FATAL] Não foi possível importar os módulos: {e}\033[0m")
+    sys.exit(1)
+
 # ─── Cores para output ───────────────────────────────────────────────────────
 
 GREEN  = '\033[92m'
@@ -907,8 +930,6 @@ def run_test(test):
     lex_ok = False
     parse_ok = False
     try:
-        from parser import parser as fortran_parser, SintaxError
-        from lexer import lexer as fortran_lexer
 
         # Reinicia o estado do lexer antes de o usar
         fortran_lexer.lineno = 1
@@ -936,7 +957,6 @@ def run_test(test):
     sem_ok = False
     if parse_ok: # Apenas avança se as fases anteriores tiverem sucesso
         try:
-            from semantic import SemanticAnalyzer
             analyzer = SemanticAnalyzer()
             sem_ok = analyzer.analyze(ast)
         except Exception as e:
@@ -948,7 +968,6 @@ def run_test(test):
     opt_ok = False
     if sem_ok and ast is not None and analyzer is not None:
         try:
-            from optimizer import Optimizer
             optimizer = Optimizer(analyzer.symbol_table, analyzer.goto_labels.union(analyzer.do_labels))
             opt_ast = optimizer.optimize(ast)
             opt_ok = opt_ast is not None
@@ -961,7 +980,6 @@ def run_test(test):
     codegen_ok = False
     if sem_ok and opt_ast is not None and analyzer is not None:
         try:
-            from codegen import CodeGenerator
             generator = CodeGenerator(analyzer.symbol_table, analyzer.goto_labels)
             vm_code = generator.generate(opt_ast)
             codegen_ok = vm_code is not None and len(vm_code) > 0

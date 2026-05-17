@@ -459,7 +459,7 @@ class SemanticAnalyzer:
                 'line': line
             })
 
-            return None  # tipo desconhecido por agora
+            return 'UNKNOWN'  # tipo desconhecido por agora
 
     def visit_CALL_STMT(self, node):
         """

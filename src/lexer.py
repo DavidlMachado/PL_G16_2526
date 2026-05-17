@@ -45,6 +45,10 @@ def t_newline(t):
 
 # Comentários: estilo free-form (!)
 def t_COMMENT(t):
+    # '!'  : Apanha o carácter literal de exclamação.
+    # '.'  : Apanha QUALQUER carácter (exceto quebras de linha).
+    # '*'  : Significa "0 ou mais vezes".
+    # Resumo: Apanha desde o '!' até ao final da linha, ignorando o seu conteúdo.
     r'!.*'
     pass
 
@@ -61,24 +65,39 @@ t_OR  = r'\.OR\.'
 t_POW = r'\*\*'
 
 def t_BOOLEAN(t):
+    # '\.'          : Começa com um ponto literal.
+    # '(TRUE|FALSE)': O símbolo '|' atua como um OU. Tem de ser exatamente "TRUE" ou "FALSE".
+    # '\.'          : Termina com um ponto literal.
     r'\.(TRUE|FALSE)\.'
     t.value = True if 'TRUE' in t.value.upper() else False
     return t
 
 def t_STRING(t):
+    # "'"      : Começa com uma aspa simples literal.
+    # '[^']*'  : O '^' dentro de parênteses retos significa NEGAÇÃO. 
+    #            Ou seja, apanha 0 ou mais caracteres que NÃO sejam uma aspa simples.
+    # "'"      : Termina com uma aspa simples literal.
     r"'[^']*'"
     t.value = t.value[1:-1]  # Remove aspas
     return t
 
 def t_REALVAL(t):
+    # '\d+' : Apanha 1 ou mais dígitos (números de 0 a 9).
+    # '\.'  : Apanha o separador decimal (ponto literal).
+    # '\d+' : Apanha 1 ou mais dígitos após a vírgula.
     r'\d+\.\d+'
     t.value = float(t.value)
     return t
 
 def t_INTVAL(t):
+    # '\d+' : Apanha 1 ou mais dígitos isolados.
     r'\d+'
     raw_len = len(t.value)      # comprimento original ANTES de converter
     t.value = int(t.value)
+
+    # Lógica extra para distinguir inteiros de Labels de GOTO 
+    # Verifica se os dígitos estão sozinhos no início da linha, seguidos de um espaço.
+    # Se sim, não é um número normal (INTVAL), mas sim um marcador (LABEL).
     line_start = getattr(t.lexer, 'line_start', 0)
     text_before = t.lexer.lexdata[line_start:t.lexpos]
     text_after = t.lexer.lexdata[t.lexpos + raw_len:]
@@ -88,6 +107,8 @@ def t_INTVAL(t):
     return t
 
 def t_VAR(t):
+    # '[a-zA-Z]'     : O primeiro carácter tem OBRIGATORIAMENTE de ser uma letra (maiúscula ou minúscula).
+    # '[a-zA-Z0-9]*' : Os caracteres seguintes (zero ou mais) podem ser letras ou números.
     r'[a-zA-Z][a-zA-Z0-9]*'
     t.type = reserved.get(t.value.upper(), 'VAR')
     if t.type == 'VAR':
