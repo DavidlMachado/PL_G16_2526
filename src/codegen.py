@@ -60,10 +60,11 @@ class CodeGenerator:
         global_scope = self.symbol_table.scopes['global']
         # Ordenar por nome para garantir atribuição de endereços determinística
         for name, info in sorted(global_scope.items()):
+            if info.get('line') is None:  # builtins têm line=None, salta-os
+                continue
             if info.get('is_array') is not None:
                 info['address'] = current_address
                 info['scope_type'] = 'global'
-                # arrays ocupam N, variáveis normais 1
                 size = info.get('size', 1) if info.get('is_array') else 1
                 current_address += size
 
@@ -170,9 +171,12 @@ class CodeGenerator:
         target = node[1]
 
         if target[0] == 'ARRAY_ACCESS':
-            self.visit(target) # Gera [Pointer, Índice]
-            self.visit(node[2]) # Avalia a expressão: [Pointer, Índice, Valor]
-            self.add_instruction("storen") # Consome os três!
+            self.visit(target)  # Gera o endereço absoluto do elemento do array
+            self.visit(node[2]) # Avalia a expressão, deixando o valor na stack
+            self.add_instruction("pushi", 0)
+            self.add_instruction("swap")
+            self.add_instruction("storen")
+
         else:
             self.visit(node[2]) # Avalia a expressão: [Valor]
             var_info = self.symbol_table.lookup(target[1])
@@ -195,12 +199,13 @@ class CodeGenerator:
         self.visit(index_expr)
         self.add_instruction("pushi", 1)
         self.add_instruction("sub")
-        self.add_instruction("add")
+        self.add_instruction("add") # Soma offset da variável com (índice - 1)
+        self.add_instruction("add") # Soma ponteiro base (gp/fp) com offset total para obter endereço absoluto
 
     def visit_ARRAY_ACCESS_value(self, node):
         """Deixa o VALOR do array na stack (para uso em expressões)."""
         self.visit_ARRAY_ACCESS(node)
-        self.add_instruction("loadn")
+        self.add_instruction("load", 0)
 
     def visit_IF(self, node):
         else_label = self.new_label("ifelse")
@@ -226,21 +231,35 @@ class CodeGenerator:
     def visit_BINOP(self, node):
         op = node[0]
         if op == 'UMINUS':
+            operand_type = self._get_expression_type(node[1])
             self.visit(node[1])
-            self.add_instruction('pushi', -1)
-            self.add_instruction('mul')
+            if operand_type == 'REAL':
+                self.add_instruction('pushf', -1.0)
+                self.add_instruction('fmul')
+            else:
+                self.add_instruction('pushi', -1)
+                self.add_instruction('mul')
         elif op == 'NOT':
             self.visit(node[1])
             self.add_instruction('not')
-        elif op == 'NE':
-            self.visit(node[1])
-            self.visit(node[2])
-            self.add_instruction('equal')
-            self.add_instruction('not')
         else:
+            # tipos para decidir o tipo das operações
+            left_type = self._get_expression_type(node[1])
+            right_type = self._get_expression_type(node[2])
+            is_float_op = 'REAL' in (left_type, right_type)
+
             self.visit(node[1])
             self.visit(node[2])
-            self.add_instruction(self.op_map[op])
+
+            # apenas estas operações têm float counterparts
+            FLOAT_OPS = {'+', '-', '*', '/', '.LT.', '.LE.', '.GT.', '.GE.', 'LT', 'LE', 'GT', 'GE'}
+
+            base_instr = self.op_map[op]
+            if is_float_op and op in FLOAT_OPS:
+                instr = f"f{base_instr}"
+            else:
+                instr = base_instr
+            self.add_instruction(instr)
 
     def visit_CONST(self, node):
         t, v = node[1], node[2]
@@ -331,25 +350,22 @@ class CodeGenerator:
             var_info = self.symbol_table.lookup(item[1])
             var_type = var_info.get('type')
             
-            # Se for array, prepara [Pointer, Índice] na stack
             if item[0] == 'ARRAY_ACCESS':
-                self.visit(item)
+                self.visit_ARRAY_ACCESS(item)  # endereço
 
-            # Lê o valor
             self.add_instruction("read")
 
-            # Converte se necessario
             if var_type == 'REAL':
                 self.add_instruction("atof")
             elif var_type == 'INTEGER' or var_type == 'LOGICAL':
                 self.add_instruction("atoi")
 
-            # Guarda
             if item[0] == 'VAR':
                 instr = "storeg" if var_info['scope_type'] == 'global' else "storel"
                 self.add_instruction(instr, var_info['address'])
             elif item[0] == 'ARRAY_ACCESS':
-                # Stack tem [Pointer, Índice, Valor], o storen trata do resto!
+                self.add_instruction("pushi", 0)
+                self.add_instruction("swap")
                 self.add_instruction("storen")
 
     def visit_CALL(self, node):
@@ -370,13 +386,15 @@ class CodeGenerator:
             # right to left para a stack
             for arg_expr in reversed(args):
                 self.visit(arg_expr)
-            self.add_instruction("call", f"f{name}")
+            self.add_instruction("pusha", f"f{name}")
+            self.add_instruction("call")
 
     def visit_CALL_STMT(self, node):
         args = node[2]
         for arg_expr in reversed(args):
             self.visit(arg_expr)
-        self.add_instruction("call", f"f{node[1]}")
+        self.add_instruction("pusha", f"f{node[1]}")
+        self.add_instruction("call")
 
     def _setup_subprogram(self, name, params):
         self.add_label(f"f{name}")

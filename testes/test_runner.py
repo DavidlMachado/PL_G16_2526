@@ -208,8 +208,8 @@ TESTS = [
         'expect_sem_ok':   True,
         'expect_codegen_ok': True,
         'check_codegen': lambda vm_code: (
-            any('storen' in line for line in vm_code) and any('loadn' in line for line in vm_code),
-            "Acesso a array devia usar storen/loadn"
+            any('store 0' in line for line in vm_code) and any('load 0' in line for line in vm_code),
+            "Acesso a array devia usar store 0/load 0"
         )
     },
 
@@ -246,8 +246,8 @@ TESTS = [
         'expect_sem_ok':   True,
         'expect_codegen_ok': True,
         'check_codegen': lambda vm_code: (
-            any('call fCONVRT' in line for line in vm_code) and any('fCONVRT:' in line for line in vm_code),
-            "Chamada de função devia gerar 'call fCONVRT' e a definição 'fCONVRT:'"
+            any('pusha fCONVRT' in line for line in vm_code) and any('call' in line for line in vm_code) and any('fCONVRT:' in line for line in vm_code),
+            "Chamada de função devia gerar 'pusha fCONVRT', 'call' e a definição 'fCONVRT:'"
         )
     },
 
@@ -869,8 +869,8 @@ TESTS = [
         'expect_sem_ok':   True,
         'expect_codegen_ok': True,
         'check_codegen': lambda vm_code: (
-            any('storeg' in line for line in vm_code) and any('store' in line for line in vm_code),
-            "Atribuição a variável devia usar 'storeg' e a array 'store'"
+            any('storeg' in line for line in vm_code) and any('store 0' in line for line in vm_code),
+            "Atribuição a variável devia usar 'storeg' e a array 'store 0'"
         )
     },
 ]
