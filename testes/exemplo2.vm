@@ -3,6 +3,7 @@ jump progFATORIAL
 progFATORIAL:
 pushs "Introduza um numero inteiro positivo:"
 writes
+writeln
 read
 atoi
 storeg 2
@@ -33,4 +34,5 @@ pushs ": "
 writes
 pushg 0
 writei
+writeln
 stop

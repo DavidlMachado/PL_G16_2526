@@ -231,8 +231,8 @@ TESTS = [
         'expect_sem_ok':   True,
         'expect_codegen_ok': True,
         'check_codegen': lambda vm_code: (
-            any('store 0' in line for line in vm_code) and any('load 0' in line for line in vm_code),
-            "Acesso a array devia usar store 0/load 0"
+            any('storen' in line for line in vm_code) and any('loadn' in line for line in vm_code),
+            "Acesso a array devia usar storen e loadn"
         )
     },
 
@@ -892,8 +892,8 @@ TESTS = [
         'expect_sem_ok':   True,
         'expect_codegen_ok': True,
         'check_codegen': lambda vm_code: (
-            any('storeg' in line for line in vm_code) and any('store 0' in line for line in vm_code),
-            "Atribuição a variável devia usar 'storeg' e a array 'store 0'"
+            any('storeg' in line for line in vm_code) and any('storen' in line for line in vm_code),
+            "Atribuição a variável devia usar 'storeg' e a array 'storen'"
         )
     },
 ]

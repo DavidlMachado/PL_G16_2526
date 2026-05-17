@@ -3,4 +3,5 @@ jump progHELLO
 progHELLO:
 pushs "Ola, Mundo!"
 writes
+writeln
 stop

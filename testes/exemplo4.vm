@@ -7,6 +7,7 @@ pushi 0
 storeg 6
 pushs "Introduza 5 numeros inteiros:"
 writes
+writeln
 pushi 1
 storeg 0
 dostart2:
@@ -39,4 +40,5 @@ pushs "A soma dos numeros e: "
 writes
 pushg 6
 writei
+writeln
 stop

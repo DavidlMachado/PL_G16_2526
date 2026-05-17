@@ -3,6 +3,7 @@ jump progPRIMO
 progPRIMO:
 pushs "Introduza um numero inteiro positivo:"
 writes
+writeln
 read
 atoi
 storeg 2
@@ -44,11 +45,13 @@ pushg 2
 writei
 pushs " e um numero primo"
 writes
+writeln
 jump ifend7
 ifelse6:
 pushg 2
 writei
 pushs " nao e um numero primo"
 writes
+writeln
 ifend7:
 stop

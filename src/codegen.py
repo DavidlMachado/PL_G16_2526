@@ -329,6 +329,8 @@ class CodeGenerator:
             elif t == 'LOGICAL': self.add_instruction("writei")
             elif t == 'CHARACTER': self.add_instruction("writes")
             else: self.add_instruction("writei") # fallback
+        
+        self.add_instruction("writeln")  # newline no fim de cada PRINT
 
     def visit_READ(self, node):
         for item in node[1]:
