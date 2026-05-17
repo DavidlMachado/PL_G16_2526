@@ -1,6 +1,0 @@
-start
-jump progHELLO
-progHELLO:
-pushs "Ola, Mundo!"
-writes
-stop
