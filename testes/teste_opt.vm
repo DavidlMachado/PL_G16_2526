@@ -2,13 +2,13 @@ start
 jump progTESTEOPT
 progTESTEOPT:
 pushi 8
-storeg 10
+storeg 0
 jump L1001
 L1001:
 pushi 1
-storeg 12
-pushg 10
+storeg 2
+pushg 0
 writei
-pushg 12
+pushg 2
 writei
 stop

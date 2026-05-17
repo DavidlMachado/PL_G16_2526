@@ -5,32 +5,32 @@ pushs "Introduza um numero inteiro positivo:"
 writes
 read
 atoi
-storeg 10
+storeg 2
+pushi 1
+storeg 0
 pushi 1
 storeg 1
-pushi 1
-storeg 3
 dostart2:
-pushg 3
-pushg 10
+pushg 1
+pushg 2
 infeq
 jz doend3
+pushg 0
 pushg 1
-pushg 3
 mul
-storeg 1
-pushg 3
+storeg 0
+pushg 1
 pushi 1
 add
-storeg 3
+storeg 1
 jump dostart2
 doend3:
 pushs "Fatorial de "
 writes
-pushg 10
+pushg 2
 writei
 pushs ": "
 writes
-pushg 1
+pushg 0
 writei
 stop

@@ -1,45 +1,42 @@
 start
 jump progSOMAARR
 progSOMAARR:
+pushi 5
+allocn
 pushi 0
-storeg 15
+storeg 6
 pushs "Introduza 5 numeros inteiros:"
 writes
 pushi 1
-storeg 2
+storeg 0
 dostart2:
-pushg 2
+pushg 0
 pushi 5
 infeq
 jz doend3
-pushgp
-pushi 9
-pushg 2
+pushst 0
+pushg 0
 pushi 1
 sub
-add
-loadn
 read
 atoi
 storen
-pushg 15
-pushgp
-pushi 9
-pushg 2
+pushg 6
+pushst 0
+pushg 0
 pushi 1
 sub
-add
 loadn
 add
-storeg 15
-pushg 2
+storeg 6
+pushg 0
 pushi 1
 add
-storeg 2
+storeg 0
 jump dostart2
 doend3:
 pushs "A soma dos numeros e: "
 writes
-pushg 15
+pushg 6
 writei
 stop

@@ -5,48 +5,48 @@ pushs "Introduza um numero inteiro positivo:"
 writes
 read
 atoi
-storeg 10
-pushi 1
-storeg 6
-pushi 2
 storeg 2
+pushi 1
+storeg 1
+pushi 2
+storeg 0
 L201:
+pushg 0
 pushg 2
-pushg 10
 pushi 2
 div
 infeq
-pushg 6
+pushg 1
 and
 jz ifelse2
-pushg 10
 pushg 2
+pushg 0
 mod
 pushi 0
 equal
 jz ifelse4
 pushi 0
-storeg 6
+storeg 1
 jump ifend5
 ifelse4:
 ifend5:
-pushg 2
+pushg 0
 pushi 1
 add
-storeg 2
+storeg 0
 jump L201
 jump ifend3
 ifelse2:
 ifend3:
-pushg 6
+pushg 1
 jz ifelse6
-pushg 10
+pushg 2
 writei
 pushs " e um numero primo"
 writes
 jump ifend7
 ifelse6:
-pushg 10
+pushg 2
 writei
 pushs " nao e um numero primo"
 writes

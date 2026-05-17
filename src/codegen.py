@@ -25,6 +25,7 @@ class CodeGenerator:
         self.vm_code = []
         self.goto_labels = goto_labels
         self.label_counter = 0
+        self.heap_counter = 0
         self.current_scope = 'global'
 
         # controlo de fluxo
@@ -67,17 +68,6 @@ class CodeGenerator:
                 info['scope_type'] = 'global'
                 size = info.get('size', 1) if info.get('is_array') else 1
                 current_address += size
-
-        # offsets para variáveis locais e params
-        for scope_name, scope_vars in self.symbol_table.scopes.items():
-            if scope_name == 'global':
-                continue
-            current_offset = 0
-            for name, info in scope_vars.items():
-                info['address'] = current_offset
-                info['scope_type'] = 'local'
-                size = info.get('size', 1) if info.get('is_array') else 1
-                current_offset += size
 
         # mapear labels do fortran
         for l_node in find_nodes(ast, 'LABEL'):
@@ -163,6 +153,14 @@ class CodeGenerator:
     # --- VISITORS ---
 
     def visit_PROGRAM(self, node):
+        global_scope = self.symbol_table.scopes['global']
+        for name, info in sorted(global_scope.items()):
+            if info.get('is_array') and info.get('scope_type') == 'global':
+                self.add_instruction("pushi", info['size'])
+                self.add_instruction("allocn")
+                info['heap_index'] = self.heap_counter
+                self.heap_counter += 1
+
         statements = node[3]
         for stmt in statements:
             self.visit(stmt)
@@ -171,11 +169,9 @@ class CodeGenerator:
         target = node[1]
 
         if target[0] == 'ARRAY_ACCESS':
-            self.visit(target)  # Gera o endereço absoluto do elemento do array
-            self.visit(node[2]) # Avalia a expressão, deixando o valor na stack
-            self.add_instruction("pushi", 0)
-            self.add_instruction("swap")
-            self.add_instruction("storen")
+            self.visit(target)   # stack: [ponteiro_heap, índice]
+            self.visit(node[2])  # stack: [ponteiro_heap, índice, valor]
+            self.add_instruction("storen")  # guarda heap[índice] = valor
 
         else:
             self.visit(node[2]) # Avalia a expressão: [Valor]
@@ -184,28 +180,17 @@ class CodeGenerator:
             self.add_instruction(instr, var_info['address'])
 
     def visit_ARRAY_ACCESS(self, node):
-        # deixa o endereço da cena na stack
         var_info = self.symbol_table.lookup(node[1])
         index_expr = node[2]
-        
-        # Põe o Endereço Base na stack (Pointer)
-        if var_info['scope_type'] == 'global':
-            self.add_instruction("pushgp")
-        else:
-            self.add_instruction("pushfp")
-            
-        # Calcula o Índice Total (offset da var + índice do Fortran - 1)
-        self.add_instruction("pushi", var_info['address'])
+
+        self.add_instruction("pushst", var_info['heap_index'])
         self.visit(index_expr)
         self.add_instruction("pushi", 1)
         self.add_instruction("sub")
-        self.add_instruction("add") # Soma offset da variável com (índice - 1)
-        self.add_instruction("add") # Soma ponteiro base (gp/fp) com offset total para obter endereço absoluto
 
     def visit_ARRAY_ACCESS_value(self, node):
-        """Deixa o VALOR do array na stack (para uso em expressões)."""
-        self.visit_ARRAY_ACCESS(node)
-        self.add_instruction("load", 0)
+        self.visit_ARRAY_ACCESS(node)   # stack: [ponteiro_heap, índice]
+        self.add_instruction("loadn")   # lê heap[índice] como inteiro
 
     def visit_IF(self, node):
         else_label = self.new_label("ifelse")
@@ -364,8 +349,6 @@ class CodeGenerator:
                 instr = "storeg" if var_info['scope_type'] == 'global' else "storel"
                 self.add_instruction(instr, var_info['address'])
             elif item[0] == 'ARRAY_ACCESS':
-                self.add_instruction("pushi", 0)
-                self.add_instruction("swap")
                 self.add_instruction("storen")
 
     def visit_CALL(self, node):
@@ -400,12 +383,30 @@ class CodeGenerator:
         self.add_label(f"f{name}")
         local_scope = self.symbol_table.scopes[name]
         
-        # alloc space para os locals com pushn (a EWVM não tem 'enter')
-        num_locals_and_params = sum((info.get('size') or 1) for info in local_scope.values() if info.get('scope_type') == 'local')
-        n_locals = num_locals_and_params - len(params)
+        # Atribui índices negativos aos parâmetros (chegam antes do fp)
+        for i, param_name in enumerate(params):
+            if param_name in local_scope:
+                local_scope[param_name]['address'] = -(i + 1)
+                local_scope[param_name]['scope_type'] = 'local'
+        
+        # Conta só as variáveis locais (não parâmetros)
+        n_locals = sum(
+            (info.get('size') or 1)
+            for name2, info in local_scope.items()
+            if info.get('scope_type') == 'local' and name2 not in params
+        )
         
         if n_locals > 0:
             self.add_instruction("pushn", n_locals)
+    
+        # Reatribui offsets positivos às locais (começando em 0)
+        current_offset = 0
+        for name2, info in local_scope.items():
+            if name2 not in params:
+                info['address'] = current_offset
+                info['scope_type'] = 'local'
+                size = info.get('size', 1) if info.get('is_array') else 1
+                current_offset += size
 
     def visit_SUBROUTINE(self, node):
         name, params, statements = node[1], node[2], node[4]

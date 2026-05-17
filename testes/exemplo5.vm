@@ -1,41 +1,40 @@
 start
 jump progCONVERSOR
 fCONVRT:
-pushn 5
 pushi 0
-storel 6
+storel 4
 pushi 1
-storel 5
-pushl 1
 storel 3
+pushl -1
+storel 1
 L202:
-pushl 3
+pushl 1
 pushi 0
 sup
 jz ifelse3
-pushl 3
-pushl 2
+pushl 1
+pushl -2
 mod
-storel 4
-pushl 6
+storel 2
 pushl 4
-pushl 5
+pushl 2
+pushl 3
 mul
 add
-storel 6
-pushl 3
-pushl 2
+storel 4
+pushl 1
+pushl -2
 div
-storel 3
-pushl 5
+storel 1
+pushl 3
 pushi 10
 mul
-storel 5
+storel 3
 jump L202
 jump ifend4
 ifelse3:
 ifend4:
-pushl 6
+pushl 4
 storel 0
 pushl 0
 return
@@ -45,30 +44,31 @@ pushs "INTRODUZA UM NUMERO DECIMAL INTEIRO:"
 writes
 read
 atoi
-storeg 10
+storeg 2
 pushi 2
-storeg 1
+storeg 0
 dostart5:
-pushg 1
+pushg 0
 pushi 9
 infeq
 jz doend6
-pushg 1
-pushg 10
-call fCONVRT
-storeg 12
+pushg 0
+pushg 2
+pusha fCONVRT
+call
+storeg 3
 pushs "BASE "
 writes
-pushg 1
+pushg 0
 writei
 pushs ": "
 writes
-pushg 12
+pushg 3
 writei
-pushg 1
+pushg 0
 pushi 1
 add
-storeg 1
+storeg 0
 jump dostart5
 doend6:
 stop
